@@ -22,7 +22,7 @@ This is a terminal-native observability panel for opencode sessions. It should f
 ## 4. Spacing
 
 - Panels stack vertically with one blank terminal row between major sections.
-- Rows are single-line unless a session row includes a secondary directory/model line.
+- Rows are single-line unless a session row includes a secondary status/model line.
 - Tab labels render on one row: active label bracketed, inactive label plain.
 
 ## 5. Components
