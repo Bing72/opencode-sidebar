@@ -1,0 +1,30 @@
+{
+  "name": "opencode-session-timeline",
+  "version": "0.1.0",
+  "description": "OpenCode TUI plugin with timeline and session list tabs",
+  "type": "module",
+  "exports": {
+    "./tui": "./src/tui.tsx"
+  },
+  "author": "local",
+  "license": "MIT",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src package.json tsconfig.json vitest.config.ts"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.17.9",
+    "@opencode-ai/sdk": "^1.17.9",
+    "@opentui/core": "^0.3.4",
+    "@opentui/keymap": "^0.3.4",
+    "@opentui/solid": "^0.3.4",
+    "solid-js": "^1.9.12"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.8",
+    "@types/node": "^24.12.2",
+    "typescript": "^5.8.2",
+    "vitest": "^2.1.9"
+  }
+}
