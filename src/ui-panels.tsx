@@ -1,0 +1,235 @@
+/** @jsxImportSource @opentui/solid */
+
+import type { TuiPluginApi, TuiThemeCurrent } from "@opencode-ai/plugin/tui";
+import type { JSX } from "solid-js";
+
+import { buildAgents, hasUnresolvedNav } from "./agents";
+import { computeElapsed, displayNow, tickNow } from "./elapsed";
+import { formatClock, formatLiveDuration, rowDurationText } from "./format";
+import type { Envelope } from "./history";
+import { buildSessionEntries } from "./sessions";
+import { buildTimeline, GLYPHS } from "./timeline";
+import type { Part, PluginOptions, Session, SessionStatus, TimelineEntry, TimelineKind } from "./types";
+import { renderAgentRow, renderSessionRows } from "./ui-rows";
+
+export interface PanelDeps {
+  readonly api: TuiPluginApi;
+  readonly options: PluginOptions;
+  readonly now: () => number;
+  readonly mergedFor: (sessionId: string) => Envelope[];
+  readonly partsByMsg: (merged: ReadonlyArray<Envelope>) => Map<string, ReadonlyArray<Part>>;
+  readonly flattenParts: (merged: ReadonlyArray<Envelope>) => Part[];
+  readonly ensureHistory: (sessionId: string) => void;
+  readonly ensureChildren: (sessionId: string) => void;
+  readonly makeResolveChildId: (sessionId: string) => (part: Extract<Part, { type: "tool" }>) => string | undefined;
+  readonly childrenVersion: () => number;
+  readonly refreshSessions: () => void;
+  readonly sessions: () => ReadonlyArray<Session>;
+  readonly sessionStatuses: () => ReadonlyMap<string, SessionStatus>;
+  readonly sessionError: () => string | undefined;
+}
+
+const DEFAULT_MAX_ROWS = 50;
+const DEFAULT_MAX_SESSIONS = 20;
+
+export function renderAgentsPanel(deps: PanelDeps, sessionId: string): JSX.Element {
+  deps.childrenVersion();
+  const merged = deps.mergedFor(sessionId);
+  const rows = buildAgents(deps.flattenParts(merged), {
+    statusOf: (id) => deps.api.state.session.status(id),
+    resolveChildId: deps.makeResolveChildId(sessionId),
+  });
+  if (hasUnresolvedNav(rows)) deps.ensureChildren(sessionId);
+  const theme = deps.api.theme.current;
+  const liveNow = displayNow(
+    deps.api.state.session.status(sessionId),
+    merged.map((entry) => entry.info),
+    tickNow(deps.api.state.session.status(sessionId), deps.now),
+  );
+  return (
+    <box flexDirection="column">
+      <box height={1}>
+        <text fg={deps.options.headerColor ?? theme.accent ?? theme.primary}>
+          <b>{"Agents"}</b>
+        </text>
+      </box>
+      {rows.length === 0 ? (
+        <box height={1}>
+          <text fg={deps.options.dimColor ?? theme.textMuted}>{"No subagents"}</text>
+        </box>
+      ) : (
+        rows.map((entry) =>
+          renderAgentRow(entry, liveNow, theme, (id) => deps.api.route.navigate("session", { sessionID: id })),
+        )
+      )}
+    </box>
+  ) as unknown as JSX.Element;
+}
+
+export function renderTimelinePanel(deps: PanelDeps, sessionId: string): JSX.Element | null {
+  deps.ensureHistory(sessionId);
+  const merged = deps.mergedFor(sessionId);
+  const entries = buildTimeline(
+    merged.map((entry) => entry.info),
+    deps.partsByMsg(merged),
+    { maxRows: deps.options.maxRows ?? DEFAULT_MAX_ROWS },
+  );
+  if (entries.length === 0) return null;
+  const theme = deps.api.theme.current;
+  const status = deps.api.state.session.status(sessionId);
+  const liveNow = displayNow(
+    status,
+    merged.map((entry) => entry.info),
+    tickNow(status, deps.now),
+  );
+  return (
+    <box flexDirection="column">
+      {entries.map((entry) => renderTimelineRow(deps, entry, sessionId, theme, liveNow))}
+    </box>
+  ) as unknown as JSX.Element;
+}
+
+export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Element {
+  deps.refreshSessions();
+  const theme = deps.api.theme.current;
+  const rows = buildSessionEntries(deps.sessions(), deps.sessionStatuses(), {
+    currentSessionId: sessionId,
+    now: deps.now(),
+    maxSessions: deps.options.maxSessions ?? DEFAULT_MAX_SESSIONS,
+  });
+  const error = deps.sessionError();
+  return (
+    <box flexDirection="column">
+      {error === undefined ? null : (
+        <box height={1}>
+          <text fg={theme.warning}>{error}</text>
+        </box>
+      )}
+      {rows.length === 0 ? (
+        <box height={1}>
+          <text fg={theme.textMuted}>{"No sessions"}</text>
+        </box>
+      ) : (
+        renderSessionRows(rows, theme, (id) => deps.api.route.navigate("session", { sessionID: id }))
+      )}
+    </box>
+  ) as unknown as JSX.Element;
+}
+
+export function renderPromptTimer(deps: PanelDeps, sessionId: string): JSX.Element | null {
+  deps.ensureHistory(sessionId);
+  const merged = deps.mergedFor(sessionId);
+  const status = deps.api.state.session.status(sessionId);
+  const infos = merged.map((entry) => entry.info);
+  const elapsed = computeElapsed(
+    infos,
+    deps.partsByMsg(merged),
+    status,
+    displayNow(status, infos, tickNow(status, deps.now)),
+  );
+  if (!elapsed.hasData) return null;
+  const glyph = deps.options.timerGlyph ?? GLYPHS.timer;
+  if (elapsed.running) {
+    return (
+      <text
+        fg={deps.options.headerColor ?? deps.api.theme.current.accent}
+      >{`${glyph} ${formatLiveDuration(elapsed.ms)}`}</text>
+    );
+  }
+  if (deps.options.showIdleDuration === false || elapsed.ms === 0) return null;
+  return (
+    <text
+      fg={deps.options.dimColor ?? deps.api.theme.current.textMuted}
+    >{`${glyph} ${formatLiveDuration(elapsed.ms)}`}</text>
+  );
+}
+
+function renderTimelineRow(
+  deps: PanelDeps,
+  entry: TimelineEntry,
+  sessionId: string,
+  theme: TuiThemeCurrent,
+  liveNow: number,
+): JSX.Element {
+  return (
+    <box
+      height={1}
+      flexDirection="row"
+      justifyContent="space-between"
+      onMouseUp={(event) => {
+        event.stopPropagation();
+        openDetail(deps, entry, sessionId);
+      }}
+    >
+      <box flexDirection="row" flexShrink={1} overflow="hidden" minWidth={0}>
+        <text fg={theme.textMuted}>{`${formatClock(entry.clockMs, deps.options.clockFormat ?? "24h")} `}</text>
+        <text fg={timelineEntryColor(entry.kind, deps.options, theme)}>{`${entry.glyph} `}</text>
+        <text fg={theme.text} wrapMode="none">
+          {entry.label}
+        </text>
+      </box>
+      <text fg={theme.textMuted}>{` ${rowDurationText(entry, liveNow)}`}</text>
+    </box>
+  ) as unknown as JSX.Element;
+}
+
+interface TimelineColorTheme<Color> {
+  readonly accent: Color;
+  readonly primary: Color;
+  readonly warning: Color;
+  readonly secondary: Color;
+  readonly success: Color;
+}
+
+export function timelineEntryColor<Color>(
+  kind: TimelineKind,
+  options: PluginOptions,
+  theme: TimelineColorTheme<Color>,
+): string | Color {
+  switch (kind) {
+    case "turn":
+      return options.turnColor ?? theme.accent ?? theme.primary;
+    case "plan":
+      return options.planColor ?? theme.warning ?? theme.secondary;
+    case "tool":
+      return options.taskColor ?? theme.success ?? theme.primary;
+    default:
+      return assertNever(kind);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled timeline kind: ${value}`);
+}
+
+function openDetail(deps: PanelDeps, entry: TimelineEntry, sessionId: string): void {
+  deps.api.ui.dialog.replace(() => {
+    const theme = deps.api.theme.current;
+    const merged = deps.mergedFor(sessionId);
+    const status = deps.api.state.session.status(sessionId);
+    const detailNow = displayNow(
+      status,
+      merged.map((item) => item.info),
+      tickNow(status, deps.now),
+    );
+    return (
+      <box flexDirection="column" paddingTop={1} paddingBottom={1} paddingLeft={2} paddingRight={2}>
+        <box height={1}>
+          <text fg={theme.accent}>
+            <b>{`${entry.glyph} ${entry.kind}`}</b>
+          </text>
+        </box>
+        <box height={1}>
+          <text
+            fg={theme.textMuted}
+          >{`${formatClock(entry.clockMs, deps.options.clockFormat ?? "24h")} · ${rowDurationText(entry, detailNow)}`}</text>
+        </box>
+        <box paddingTop={1}>
+          <text fg={theme.text} wrapMode="word">
+            {entry.detail}
+          </text>
+        </box>
+      </box>
+    ) as unknown as JSX.Element;
+  });
+}
