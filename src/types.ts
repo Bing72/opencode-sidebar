@@ -49,11 +49,11 @@ export interface AgentEntry {
 export interface SessionEntry {
   readonly sessionID: string;
   readonly title: string;
-  readonly directory: string;
   readonly status: SessionStatus["type"];
   readonly glyph: string;
   readonly current: boolean;
   readonly running: boolean;
+  readonly hideable: boolean;
   readonly updatedMs: number;
   readonly detail: string;
 }
