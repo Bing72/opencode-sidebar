@@ -1,0 +1,10 @@
+/.omo
+/DESIGN.md
+/biome.json
+/bun.lock
+/node_modules
+/package.json
+/src
+/tsconfig.json
+/vitest.config.ts
+/.codegraph
