@@ -11,6 +11,9 @@ import { buildSessionEntries } from "./sessions";
 import { buildTimeline, GLYPHS } from "./timeline";
 import type { Part, PluginOptions, Session, SessionStatus, TimelineEntry, TimelineKind } from "./types";
 import { renderAgentRow, renderSessionRows } from "./ui-rows";
+import { renderHiddenSessionsFooter } from "./ui-session-footer";
+
+export { handleHiddenSessionsFooterMouseUp, hiddenSessionsFooterLabel } from "./ui-session-footer";
 
 export interface PanelDeps {
   readonly api: TuiPluginApi;
@@ -27,6 +30,9 @@ export interface PanelDeps {
   readonly sessions: () => ReadonlyArray<Session>;
   readonly sessionStatuses: () => ReadonlyMap<string, SessionStatus>;
   readonly sessionError: () => string | undefined;
+  readonly hiddenSessionIds: () => ReadonlySet<string>;
+  readonly hideSession: (sessionId: string) => void;
+  readonly showHiddenSessions: () => void;
 }
 
 const DEFAULT_MAX_ROWS = 50;
@@ -92,10 +98,12 @@ export function renderTimelinePanel(deps: PanelDeps, sessionId: string): JSX.Ele
 export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Element {
   deps.refreshSessions();
   const theme = deps.api.theme.current;
+  const hiddenIds = deps.hiddenSessionIds();
   const rows = buildSessionEntries(deps.sessions(), deps.sessionStatuses(), {
     currentSessionId: sessionId,
     now: deps.now(),
     maxSessions: deps.options.maxSessions ?? DEFAULT_MAX_SESSIONS,
+    hiddenSessionIds: hiddenIds,
   });
   const error = deps.sessionError();
   return (
@@ -110,8 +118,9 @@ export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Ele
           <text fg={theme.textMuted}>{"No sessions"}</text>
         </box>
       ) : (
-        renderSessionRows(rows, theme, (id) => deps.api.route.navigate("session", { sessionID: id }))
+        renderSessionRows(rows, theme, (id) => deps.api.route.navigate("session", { sessionID: id }), deps.hideSession)
       )}
+      {renderHiddenSessionsFooter(hiddenIds.size, theme, deps.showHiddenSessions)}
     </box>
   ) as unknown as JSX.Element;
 }
