@@ -5,9 +5,24 @@ import { createSignal, type JSX } from "solid-js";
 
 import { resolveChildIdFrom } from "./agents";
 import { createCoalescer } from "./coalesce";
+import {
+  addHiddenSessionId,
+  clearHiddenSessionIds,
+  persistHiddenSessionIds,
+  readHiddenSessionIds,
+} from "./hidden-sessions";
 import { capEnvelopes, capSessions, type Envelope, mergeEnvelopes, sanitizeEnvelope } from "./history";
-import { nextSidebarTab, SIDEBAR_CONTENT_ORDER, SIDEBAR_TOGGLE_BINDING, SIDEBAR_TOGGLE_COMMAND } from "./tabs";
-import { canFetchChildren, markChildrenFetch, sessionIdsForLiveTail } from "./tui-state";
+import { createGlobalSessionRefreshClient, createSessionRefresher } from "./session-refresh";
+import { type ImmediateSessionEvent, sessionStatusesAfterEvent } from "./session-status-events";
+import { registerSidebarTabKeymap } from "./sidebar-keymap";
+import { DEFAULT_SIDEBAR_TAB, SIDEBAR_CONTENT_ORDER, shouldRefreshSessionsOnTabSelect } from "./tabs";
+import {
+  canFetchChildren,
+  markChildrenFetch,
+  SESSION_REFRESH_EVENTS,
+  SESSION_REFRESH_MS,
+  sessionIdsForLiveTail,
+} from "./tui-state";
 import type { Part, PluginOptions, Session, SessionStatus, SidebarTab } from "./types";
 import {
   type PanelDeps,
@@ -24,7 +39,6 @@ interface SlotProps {
 
 type ToolPart = Extract<Part, { type: "tool" }>;
 
-const DEFAULT_MAX_SESSIONS = 20;
 const HISTORY_FETCH_LIMIT = 150;
 const MAX_HISTORY_MESSAGES = 600;
 const MAX_HISTORY_SESSIONS = 32;
@@ -39,14 +53,14 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   const options = (rawOptions as PluginOptions | undefined) ?? {};
   const [now, setNow] = createSignal(Date.now());
   const [dataRev, setDataRev] = createSignal(0);
-  const [activeTab, setActiveTab] = createSignal<SidebarTab>("timeline");
+  const [activeTab, setActiveTab] = createSignal<SidebarTab>(DEFAULT_SIDEBAR_TAB);
   const [history, setHistory] = createSignal<ReadonlyMap<string, ReadonlyArray<Envelope>>>(new Map());
   const [sessions, setSessions] = createSignal<ReadonlyArray<Session>>([]);
   const [sessionStatuses, setSessionStatuses] = createSignal<ReadonlyMap<string, SessionStatus>>(new Map());
   const [sessionError, setSessionError] = createSignal<string | undefined>();
+  const [hiddenSessionIds, setHiddenSessionIds] = createSignal<ReadonlySet<string>>(readHiddenSessionIds(api.kv));
   const inFlight = new Set<string>();
   const failed = new Set<string>();
-  let sessionsInFlight = false;
   let disposed = false;
 
   const liveEnvelopes = (sid: string): Envelope[] =>
@@ -93,26 +107,13 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
       .finally(() => inFlight.delete(sid));
   };
 
-  const refreshSessions = (): void => {
-    if (disposed || sessionsInFlight) return;
-    sessionsInFlight = true;
-    Promise.all([
-      api.client.session.list({ limit: options.maxSessions ?? DEFAULT_MAX_SESSIONS }),
-      api.client.session.status(),
-    ])
-      .then(([listResult, statusResult]) => {
-        if (disposed) return;
-        setSessions(listResult.data ?? []);
-        setSessionStatuses(new Map(Object.entries(statusResult.data ?? {})));
-        setSessionError(undefined);
-      })
-      .catch((error: unknown) => {
-        setSessionError(error instanceof Error ? error.message : "Failed to load sessions");
-      })
-      .finally(() => {
-        sessionsInFlight = false;
-      });
-  };
+  const refreshSessions = createSessionRefresher(createGlobalSessionRefreshClient(api.client.session), {
+    isDisposed: () => disposed,
+    now: Date.now,
+    setError: setSessionError,
+    setSessions,
+    setStatuses: setSessionStatuses,
+  });
 
   const [children, setChildren] = createSignal<ReadonlyMap<string, ReadonlyArray<Session>>>(new Map());
   const [childrenVersion, setChildrenVersion] = createSignal(0);
@@ -158,20 +159,42 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
 
   const dataCoalescer = createCoalescer<string | undefined>(DATA_THROTTLE_MS, (sids) => {
     for (const sid of sessionIdsForLiveTail(sids, history().keys())) absorbLiveTail(sid);
-    refreshSessions();
+    refreshSessions(true);
     setDataRev((value) => value + 1);
   });
   const onData = (event?: { readonly properties?: { readonly sessionID?: string } }): void =>
     dataCoalescer.schedule(event?.properties?.sessionID);
+  const onSessionStatus = (event: ImmediateSessionEvent): void => {
+    setSessionStatuses((prev) => sessionStatusesAfterEvent(prev, event));
+    setDataRev((value) => value + 1);
+    onData(event);
+  };
+  const selectTab = (tab: SidebarTab): void => {
+    setActiveTab(tab);
+    if (shouldRefreshSessionsOnTabSelect(tab)) refreshSessions(true);
+  };
+  const hideSession = (sessionId: string): void => {
+    setHiddenSessionIds((prev) => {
+      const next = addHiddenSessionId(prev, sessionId);
+      persistHiddenSessionIds(api.kv, next);
+      return next;
+    });
+  };
+  const showHiddenSessions = (): void => {
+    const next = clearHiddenSessionIds();
+    persistHiddenSessionIds(api.kv, next);
+    setHiddenSessionIds(next);
+  };
   const ticker = setInterval(() => setNow(Date.now()), TICK_MS);
-  const sessionTicker = setInterval(refreshSessions, TICK_MS);
+  const sessionTicker = setInterval(refreshSessions, SESSION_REFRESH_MS);
   const unsubs = [
-    api.event.on("session.status", onData),
-    api.event.on("session.idle", onData),
+    api.event.on("session.status", onSessionStatus),
+    api.event.on("session.idle", onSessionStatus),
+    ...SESSION_REFRESH_EVENTS.map((event) => api.event.on(event, onData)),
     api.event.on("message.updated", onData),
     api.event.on("message.part.updated", onData),
   ];
-  refreshSessions();
+  refreshSessions(true);
 
   api.lifecycle.onDispose(() => {
     disposed = true;
@@ -196,22 +219,12 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     sessions,
     sessionStatuses,
     sessionError,
+    hiddenSessionIds,
+    hideSession,
+    showHiddenSessions,
   });
 
-  api.keymap.registerLayer({
-    mode: "base",
-    commands: [
-      {
-        name: SIDEBAR_TOGGLE_COMMAND,
-        title: "Toggle Timeline/Sessions",
-        category: "Timeline",
-        run() {
-          setActiveTab((tab) => nextSidebarTab(tab));
-        },
-      },
-    ],
-    bindings: [{ key: SIDEBAR_TOGGLE_BINDING, cmd: SIDEBAR_TOGGLE_COMMAND, desc: "Switch Timeline/Sessions" }],
-  });
+  registerSidebarTabKeymap(api, activeTab, selectTab);
 
   api.slots.register({
     order: 55,
@@ -232,7 +245,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
           <box flexDirection="column">
             {renderAgentsPanel(panelDeps(), props.session_id)}
             <box height={1} />
-            {renderTabs(activeTab(), options, api.theme.current, setActiveTab)}
+            {renderTabs(activeTab(), options, api.theme.current, selectTab)}
             {activeTab() === "timeline"
               ? renderTimelinePanel(panelDeps(), props.session_id)
               : renderSessionsPanel(panelDeps(), props.session_id)}
