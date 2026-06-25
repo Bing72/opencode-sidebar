@@ -57,6 +57,10 @@ export function currentSessionColor<Color>(theme: SessionColorTheme<Color>): Col
   return theme.success ?? theme.primary;
 }
 
+export function sessionHideActionColor<Color>(theme: { readonly error: Color }): Color {
+  return theme.error;
+}
+
 export function handleSessionHideMouseUp(
   event: HideMouseEvent,
   entry: Pick<SessionEntry, "sessionID" | "hideable">,
@@ -156,7 +160,10 @@ export function renderSessionRows(
           <box flexDirection="row" flexShrink={0}>
             <text fg={theme.textMuted}>{` ${formatLiveDuration(entry.updatedMs)} ago`}</text>
             {entry.hideable && hideSession !== undefined ? (
-              <text fg={theme.textMuted} onMouseUp={(event) => handleSessionHideMouseUp(event, entry, hideSession)}>
+              <text
+                fg={sessionHideActionColor(theme)}
+                onMouseUp={(event) => handleSessionHideMouseUp(event, entry, hideSession)}
+              >
                 {" ×"}
               </text>
             ) : null}

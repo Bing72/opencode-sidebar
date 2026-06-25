@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEntry } from "../types";
-import { currentSessionColor, handleSessionHideMouseUp, sessionGlyphTitleParts, sessionStatusColor } from "../ui-rows";
+import {
+  currentSessionColor,
+  handleSessionHideMouseUp,
+  sessionGlyphTitleParts,
+  sessionHideActionColor,
+  sessionStatusColor,
+} from "../ui-rows";
 
 const theme = {
   accent: "theme-accent",
@@ -66,5 +72,13 @@ describe("session row helpers", () => {
     expect(parts.glyph).toBe("○");
     expect(parts.separator).toBe(" ");
     expect(parts.title).toBe("hold.py");
+  });
+
+  it("T-ROW-05 maps the session hide action to the theme error color", () => {
+    const hideActionTheme = { error: "theme-error" };
+
+    const color = sessionHideActionColor(hideActionTheme);
+
+    expect(color).toBe("theme-error");
   });
 });
