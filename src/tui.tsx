@@ -19,10 +19,10 @@ import { registerSidebarTabKeymap } from "./sidebar-keymap";
 import { DEFAULT_SIDEBAR_TAB, SIDEBAR_CONTENT_ORDER, shouldRefreshSessionsOnTabSelect } from "./tabs";
 import {
   canFetchChildren,
+  type LiveTailUpdate,
+  liveTailFlushPlan,
   markChildrenFetch,
   SESSION_REFRESH_EVENTS,
-  SESSION_REFRESH_MS,
-  sessionIdsForLiveTail,
 } from "./tui-state";
 import type { Part, PluginOptions, Session, SessionStatus, SidebarTab } from "./types";
 import {
@@ -158,13 +158,16 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     return mergedCache;
   };
 
-  const dataCoalescer = createCoalescer<string | undefined>(DATA_THROTTLE_MS, (sids) => {
-    for (const sid of sessionIdsForLiveTail(sids, history().keys())) absorbLiveTail(sid);
-    refreshSessions(true);
+  const dataCoalescer = createCoalescer<LiveTailUpdate>(DATA_THROTTLE_MS, (updates) => {
+    const plan = liveTailFlushPlan(updates, history().keys());
+    for (const sid of plan.sessionIds) absorbLiveTail(sid);
+    if (plan.refreshSessions) refreshSessions(true);
     setDataRev((value) => value + 1);
   });
   const onData = (event?: { readonly properties?: { readonly sessionID?: string } }): void =>
-    dataCoalescer.schedule(event?.properties?.sessionID);
+    dataCoalescer.schedule({ sessionID: event?.properties?.sessionID, refreshSessions: true });
+  const onPartData = (event?: { readonly properties?: { readonly sessionID?: string } }): void =>
+    dataCoalescer.schedule({ sessionID: event?.properties?.sessionID, refreshSessions: false });
   const onSessionStatus = (event: ImmediateSessionEvent): void => {
     setSessionStatuses((prev) => sessionStatusesAfterEvent(prev, event));
     setDataRev((value) => value + 1);
@@ -187,20 +190,18 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     setHiddenSessionIds(next);
   };
   const ticker = setInterval(() => setNow(Date.now()), TICK_MS);
-  const sessionTicker = setInterval(refreshSessions, SESSION_REFRESH_MS);
   const unsubs = [
     api.event.on("session.status", onSessionStatus),
     api.event.on("session.idle", onSessionStatus),
     ...SESSION_REFRESH_EVENTS.map((event) => api.event.on(event, onData)),
     api.event.on("message.updated", onData),
-    api.event.on("message.part.updated", onData),
+    api.event.on("message.part.updated", onPartData),
   ];
   refreshSessions(true);
 
   api.lifecycle.onDispose(() => {
     disposed = true;
     clearInterval(ticker);
-    clearInterval(sessionTicker);
     dataCoalescer.dispose();
     for (const unsub of unsubs) unsub();
   });

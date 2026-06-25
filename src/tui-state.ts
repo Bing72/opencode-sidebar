@@ -1,6 +1,16 @@
 export const CHILDREN_RETRY_MS = 3_000;
-export const SESSION_REFRESH_MS = 3_000;
+export const SESSION_REFRESH_THROTTLE_MS = 3_000;
 export const SESSION_REFRESH_EVENTS = ["session.created", "session.updated", "session.deleted"] as const;
+
+export interface LiveTailUpdate {
+  readonly sessionID: string | undefined;
+  readonly refreshSessions: boolean;
+}
+
+export interface LiveTailFlushPlan {
+  readonly sessionIds: readonly string[];
+  readonly refreshSessions: boolean;
+}
 
 export function sessionIdsForLiveTail(
   eventSessionIds: ReadonlyArray<string | undefined>,
@@ -13,6 +23,19 @@ export function sessionIdsForLiveTail(
     if (sid !== undefined && !scoped.includes(sid)) scoped.push(sid);
   }
   return scoped;
+}
+
+export function liveTailFlushPlan(
+  updates: ReadonlyArray<LiveTailUpdate>,
+  cachedSessionIds: Iterable<string>,
+): LiveTailFlushPlan {
+  return {
+    sessionIds: sessionIdsForLiveTail(
+      updates.map((update) => update.sessionID),
+      cachedSessionIds,
+    ),
+    refreshSessions: updates.some((update) => update.refreshSessions),
+  };
 }
 
 export function canFetchChildren(sessionId: string, retryAt: ReadonlyMap<string, number>, now: number): boolean {
@@ -29,5 +52,5 @@ export function canRefreshSessions(nextRefreshAt: number, now: number): boolean 
 }
 
 export function markSessionsRefresh(now: number): number {
-  return now + SESSION_REFRESH_MS;
+  return now + SESSION_REFRESH_THROTTLE_MS;
 }
