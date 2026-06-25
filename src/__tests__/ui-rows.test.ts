@@ -6,6 +6,8 @@ import {
   sessionGlyphTitleParts,
   sessionHideActionColor,
   sessionStatusColor,
+  sessionStatusReasonParts,
+  tabHeaderProjectParts,
 } from "../ui-rows";
 
 const theme = {
@@ -34,6 +36,13 @@ describe("session row helpers", () => {
     expect(sessionStatusColor("retry", theme)).toBe(theme.warning);
     expect(sessionStatusColor("idle", theme)).toBe(theme.textMuted);
     expect(currentSessionColor(theme)).toBe(theme.success);
+    expect(
+      currentSessionColor({
+        primary: "fallback-primary",
+        warning: "fallback-warning",
+        textMuted: "fallback-muted",
+      }),
+    ).toBe("fallback-primary");
   });
 
   it("T-ROW-02 stops navigation propagation before hiding a session", () => {
@@ -74,11 +83,23 @@ describe("session row helpers", () => {
     expect(parts.title).toBe("hold.py");
   });
 
-  it("T-ROW-05 maps the session hide action to the theme error color", () => {
+  it("T-ROW-05 keeps retry reasons beside the session status", () => {
+    const retryParts = sessionStatusReasonParts({ status: "retry", statusReason: "rate limited" });
+
+    expect(retryParts).toEqual({ status: "retry", separator: " · ", reason: "rate limited" });
+    expect(sessionStatusReasonParts({ status: "idle" })).toEqual({ status: "idle" });
+  });
+
+  it("T-ROW-06 maps the session hide action to the theme error color", () => {
     const hideActionTheme = { error: "theme-error" };
 
     const color = sessionHideActionColor(hideActionTheme);
 
     expect(color).toBe("theme-error");
+  });
+
+  it("T-ROW-07 keeps the project folder as a standalone tab header line", () => {
+    expect(tabHeaderProjectParts("~/opencode-plugin")).toEqual({ projectPath: "~/opencode-plugin" });
+    expect(tabHeaderProjectParts(undefined)).toBeUndefined();
   });
 });

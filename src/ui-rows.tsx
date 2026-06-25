@@ -3,7 +3,7 @@
 import type { TuiThemeCurrent } from "@opencode-ai/plugin/tui";
 import type { JSX } from "solid-js";
 
-import { agentModel, formatLiveDuration, rowDurationText } from "./format";
+import { agentModel, formatSessionAge, rowDurationText } from "./format";
 import { SIDEBAR_TAB_ORDER, sidebarTabLabel } from "./tabs";
 import type { AgentEntry, SessionEntry, SessionStatus, SidebarTab } from "./types";
 
@@ -30,7 +30,28 @@ export interface SessionGlyphTitleParts {
   readonly title: string;
 }
 
+export type SessionStatusReasonParts =
+  | { readonly status: SessionStatus["type"] }
+  | {
+      readonly status: SessionStatus["type"];
+      readonly separator: typeof SESSION_STATUS_REASON_SEPARATOR;
+      readonly reason: string;
+    };
+
+export interface TabHeaderProjectParts {
+  readonly projectPath: string;
+}
+
+export interface RenderTabsArgs {
+  readonly active: SidebarTab;
+  readonly options: PaletteOptions;
+  readonly theme: TuiThemeCurrent;
+  readonly select: (tab: SidebarTab) => void;
+  readonly projectPath?: string;
+}
+
 const SESSION_GLYPH_TITLE_SEPARATOR = " ";
+const SESSION_STATUS_REASON_SEPARATOR = " · ";
 
 export function sessionGlyphTitleParts(entry: Pick<SessionEntry, "glyph" | "title">): SessionGlyphTitleParts {
   return {
@@ -38,6 +59,22 @@ export function sessionGlyphTitleParts(entry: Pick<SessionEntry, "glyph" | "titl
     separator: SESSION_GLYPH_TITLE_SEPARATOR,
     title: entry.title,
   };
+}
+
+export function sessionStatusReasonParts(
+  entry: Pick<SessionEntry, "status" | "statusReason">,
+): SessionStatusReasonParts {
+  if (entry.statusReason === undefined) return { status: entry.status };
+  return {
+    status: entry.status,
+    separator: SESSION_STATUS_REASON_SEPARATOR,
+    reason: entry.statusReason,
+  };
+}
+
+export function tabHeaderProjectParts(projectPath: string | undefined): TabHeaderProjectParts | undefined {
+  if (projectPath === undefined) return undefined;
+  return { projectPath };
 }
 
 export function sessionStatusColor<Color>(status: SessionStatus["type"], theme: SessionColorTheme<Color>): Color {
@@ -70,12 +107,9 @@ export function handleSessionHideMouseUp(
   if (entry.hideable) hideSession(entry.sessionID);
 }
 
-export function renderTabs(
-  active: SidebarTab,
-  options: PaletteOptions,
-  theme: TuiThemeCurrent,
-  select: (tab: SidebarTab) => void,
-): JSX.Element {
+export function renderTabs(args: RenderTabsArgs): JSX.Element {
+  const { active, options, theme, select } = args;
+  const projectParts = tabHeaderProjectParts(args.projectPath);
   const tab = (value: SidebarTab) => (
     <text
       fg={
@@ -84,15 +118,27 @@ export function renderTabs(
           : (options.dimColor ?? theme.textMuted)
       }
       onMouseUp={() => select(value)}
+      wrapMode="none"
     >
       {active === value ? `[${sidebarTabLabel(value)}]` : ` ${sidebarTabLabel(value)} `}
     </text>
   );
   return (
-    <box height={1} flexDirection="row">
-      {tab(SIDEBAR_TAB_ORDER[0])}
-      <text fg={theme.textMuted}>{" | "}</text>
-      {tab(SIDEBAR_TAB_ORDER[1])}
+    <box flexDirection="column">
+      {projectParts === undefined ? null : (
+        <box height={1} overflow="hidden" minWidth={0}>
+          <text fg={theme.textMuted} wrapMode="none">
+            {projectParts.projectPath}
+          </text>
+        </box>
+      )}
+      <box height={1} flexDirection="row" overflow="hidden" minWidth={0}>
+        {tab(SIDEBAR_TAB_ORDER[0])}
+        <text fg={theme.textMuted} wrapMode="none">
+          {" | "}
+        </text>
+        {tab(SIDEBAR_TAB_ORDER[1])}
+      </box>
     </box>
   ) as unknown as JSX.Element;
 }
@@ -133,6 +179,7 @@ export function renderSessionRows(
 ): JSX.Element[] {
   return rows.map((entry) => {
     const titleParts = sessionGlyphTitleParts(entry);
+    const statusParts = sessionStatusReasonParts(entry);
     return (
       <box
         flexDirection="column"
@@ -158,7 +205,7 @@ export function renderSessionRows(
             </text>
           </box>
           <box flexDirection="row" flexShrink={0}>
-            <text fg={theme.textMuted}>{` ${formatLiveDuration(entry.updatedMs)} ago`}</text>
+            <text fg={theme.textMuted}>{` ${formatSessionAge(entry.updatedMs)} ago`}</text>
             {entry.hideable && hideSession !== undefined ? (
               <text
                 fg={sessionHideActionColor(theme)}
@@ -169,8 +216,13 @@ export function renderSessionRows(
             ) : null}
           </box>
         </box>
-        <box height={1}>
-          <text fg={sessionStatusColor(entry.status, theme)} wrapMode="none">{`  ${entry.status}`}</text>
+        <box height={1} flexDirection="row" overflow="hidden" minWidth={0}>
+          <text fg={sessionStatusColor(statusParts.status, theme)} wrapMode="none" flexShrink={0}>
+            {`  ${statusParts.status}`}
+          </text>
+          {"reason" in statusParts ? (
+            <text fg={theme.textMuted} wrapMode="none">{`${statusParts.separator}${statusParts.reason}`}</text>
+          ) : null}
         </box>
       </box>
     );

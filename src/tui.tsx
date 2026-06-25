@@ -14,6 +14,7 @@ import {
 import { capEnvelopes, capSessions, type Envelope, mergeEnvelopes, sanitizeEnvelope } from "./history";
 import { createGlobalSessionRefreshClient, createSessionRefresher } from "./session-refresh";
 import { type ImmediateSessionEvent, sessionStatusesAfterEvent } from "./session-status-events";
+import { currentSessionProjectPath } from "./sessions";
 import { registerSidebarTabKeymap } from "./sidebar-keymap";
 import { DEFAULT_SIDEBAR_TAB, SIDEBAR_CONTENT_ORDER, shouldRefreshSessionsOnTabSelect } from "./tabs";
 import {
@@ -241,11 +242,18 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     slots: {
       sidebar_content(_ctx: TuiSlotContext, props: SlotProps) {
         dataRev();
+        const projectPath = currentSessionProjectPath(sessions(), props.session_id);
         return (
           <box flexDirection="column">
             {renderAgentsPanel(panelDeps(), props.session_id)}
             <box height={1} />
-            {renderTabs(activeTab(), options, api.theme.current, selectTab)}
+            {renderTabs({
+              active: activeTab(),
+              options,
+              theme: api.theme.current,
+              select: selectTab,
+              ...(projectPath === undefined ? {} : { projectPath }),
+            })}
             {activeTab() === "timeline"
               ? renderTimelinePanel(panelDeps(), props.session_id)
               : renderSessionsPanel(panelDeps(), props.session_id)}

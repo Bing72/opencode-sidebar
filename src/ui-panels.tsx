@@ -9,7 +9,7 @@ import { formatClock, formatLiveDuration, rowDurationText } from "./format";
 import type { Envelope } from "./history";
 import { buildSessionEntries } from "./sessions";
 import { buildTimeline, GLYPHS } from "./timeline";
-import type { Part, PluginOptions, Session, SessionStatus, TimelineEntry, TimelineKind } from "./types";
+import type { AgentEntry, Part, PluginOptions, Session, SessionStatus, TimelineEntry, TimelineKind } from "./types";
 import { renderAgentRow, renderSessionRows } from "./ui-rows";
 import { renderHiddenSessionsFooter } from "./ui-session-footer";
 
@@ -39,13 +39,8 @@ const DEFAULT_MAX_ROWS = 50;
 const DEFAULT_MAX_SESSIONS = 20;
 
 export function renderAgentsPanel(deps: PanelDeps, sessionId: string): JSX.Element {
-  deps.childrenVersion();
+  const rows = agentRowsForSession(deps, sessionId);
   const merged = deps.mergedFor(sessionId);
-  const rows = buildAgents(deps.flattenParts(merged), {
-    statusOf: (id) => deps.api.state.session.status(id),
-    resolveChildId: deps.makeResolveChildId(sessionId),
-  });
-  if (hasUnresolvedNav(rows)) deps.ensureChildren(sessionId);
   const theme = deps.api.theme.current;
   const liveNow = displayNow(
     deps.api.state.session.status(sessionId),
@@ -99,11 +94,13 @@ export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Ele
   deps.refreshSessions();
   const theme = deps.api.theme.current;
   const hiddenIds = deps.hiddenSessionIds();
+  const childActivityStatuses = childActivityStatusesForCurrentSession(deps, sessionId);
   const rows = buildSessionEntries(deps.sessions(), deps.sessionStatuses(), {
     currentSessionId: sessionId,
     now: deps.now(),
     maxSessions: deps.options.maxSessions ?? DEFAULT_MAX_SESSIONS,
     hiddenSessionIds: hiddenIds,
+    childActivityStatuses,
   });
   const error = deps.sessionError();
   return (
@@ -123,6 +120,31 @@ export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Ele
       {renderHiddenSessionsFooter(hiddenIds.size, theme, deps.showHiddenSessions)}
     </box>
   ) as unknown as JSX.Element;
+}
+
+function agentRowsForSession(deps: PanelDeps, sessionId: string): AgentEntry[] {
+  deps.childrenVersion();
+  const rows = buildAgents(deps.flattenParts(deps.mergedFor(sessionId)), {
+    statusOf: (id) => deps.api.state.session.status(id),
+    resolveChildId: deps.makeResolveChildId(sessionId),
+  });
+  if (hasUnresolvedNav(rows)) deps.ensureChildren(sessionId);
+  return rows;
+}
+
+function childActivityStatusesForCurrentSession(
+  deps: PanelDeps,
+  sessionId: string,
+): ReadonlyMap<string, SessionStatus["type"]> | undefined {
+  const status = childActivityStatus(agentRowsForSession(deps, sessionId));
+  if (status === undefined) return undefined;
+  return new Map([[sessionId, status]]);
+}
+
+function childActivityStatus(rows: ReadonlyArray<AgentEntry>): SessionStatus["type"] | undefined {
+  if (rows.some((entry) => entry.status === "rate-limited")) return "retry";
+  if (rows.some((entry) => entry.running)) return "busy";
+  return undefined;
 }
 
 export function renderPromptTimer(deps: PanelDeps, sessionId: string): JSX.Element | null {
