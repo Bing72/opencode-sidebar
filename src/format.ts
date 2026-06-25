@@ -2,6 +2,7 @@ import type { ClockFormat } from "./types";
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
 
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
@@ -27,6 +28,14 @@ export function formatLiveDuration(ms: number): string {
   const h = Math.floor(safe / HOUR_MS);
   const m = Math.floor((safe % HOUR_MS) / MINUTE_MS);
   return `${h}h ${m}m`;
+}
+
+export function formatSessionAge(ms: number): string {
+  const safe = ms > 0 ? ms : 0;
+  if (safe < MINUTE_MS) return "< 1m";
+  if (safe < HOUR_MS) return `${Math.floor(safe / MINUTE_MS)}m`;
+  if (safe < DAY_MS) return `${Math.floor(safe / HOUR_MS)}h`;
+  return `${Math.floor(safe / DAY_MS)}d`;
 }
 
 export function formatClock(epochMs: number, mode: ClockFormat): string {
