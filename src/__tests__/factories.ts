@@ -29,7 +29,7 @@ export function assistantMsg(created: number, opts?: { readonly completed?: numb
   };
 }
 
-export function textPart(messageID: string, text: string, start: number | undefined): Part {
+export function textPart(messageID: string, text: string, start: number | undefined): Extract<Part, { type: "text" }> {
   const base = {
     id: `text-${messageID}-${start ?? "na"}`,
     sessionID: "s1",

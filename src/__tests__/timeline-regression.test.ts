@@ -18,7 +18,7 @@ describe("timeline regression contract", () => {
     });
   });
 
-  it("T-TL-02 hides granular tools while keeping todowrite and task rows", () => {
+  it("T-TL-02 hides assistant tool rows from the user query timeline", () => {
     const assistant = assistantMsg(1000, { id: "a1" });
     const rows = buildTimeline(
       [assistant],
@@ -34,7 +34,46 @@ describe("timeline regression contract", () => {
       ]),
     );
 
-    expect(rows.map((entry) => entry.glyph)).toEqual([GLYPHS.subagent]);
-    expect(rows[0]?.label).toBe("explore: List files");
+    expect(rows).toEqual([]);
+  });
+
+  it("T-TL-03 hides background completion reminders from the user query timeline", () => {
+    const user = userMsg(5000, "u1");
+    const rows = buildTimeline(
+      [user],
+      partsMap(["u1", [textPart("u1", "<system-reminder>\n[BACKGROUND TASK COMPLETED] bg_123", 5000)]]),
+    );
+
+    expect(rows).toEqual([]);
+  });
+
+  it("T-TL-04 hides non-query system reminders from the user query timeline", () => {
+    const user = userMsg(5000, "u1");
+    const rows = buildTimeline(
+      [user],
+      partsMap(["u1", [textPart("u1", "<system-reminder>\nTool output was truncated", 5000)]]),
+    );
+
+    expect(rows).toEqual([]);
+  });
+
+  it("T-TL-05 hides ignored user text parts from the query timeline", () => {
+    const user = userMsg(5000, "u1");
+    const rows = buildTimeline(
+      [user],
+      partsMap(["u1", [{ ...textPart("u1", "Harness command", 5000), ignored: true }]]),
+    );
+
+    expect(rows).toEqual([]);
+  });
+
+  it("T-TL-06 hides OMO internal initiator harness prompts", () => {
+    const user = userMsg(5000, "u1");
+    const rows = buildTimeline(
+      [user],
+      partsMap(["u1", [textPart("u1", "<!-- OMO_INTERNAL_INITIATOR -->\nStart worker", 5000)]]),
+    );
+
+    expect(rows).toEqual([]);
   });
 });

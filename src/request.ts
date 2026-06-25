@@ -12,17 +12,22 @@ export function requestText(parts: ReadonlyArray<Part>): string | null {
   for (const part of parts) {
     if (part.type !== "text") continue;
     if (part.synthetic === true) continue;
+    if (part.ignored === true) continue;
     if (firstLine(part.text).length > 0) return part.text;
   }
   return null;
 }
 
-export function isBackgroundCompletion(text: string): boolean {
-  return text.trimStart().startsWith("<system-reminder>") && text.includes("[BACKGROUND TASK COMPLETED]");
+function isSystemReminder(text: string): boolean {
+  return text.trimStart().startsWith("<system-reminder>");
+}
+
+function isInternalInitiator(text: string): boolean {
+  return text.trimStart().startsWith("<!-- OMO_INTERNAL_INITIATOR -->");
 }
 
 export function isGenuineRequest(message: Message, parts: ReadonlyArray<Part>): boolean {
   if (message.role !== "user") return false;
   const text = requestText(parts);
-  return text !== null && !isBackgroundCompletion(text);
+  return text !== null && !isSystemReminder(text) && !isInternalInitiator(text);
 }
