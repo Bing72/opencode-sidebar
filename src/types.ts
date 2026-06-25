@@ -50,6 +50,7 @@ export interface SessionEntry {
   readonly sessionID: string;
   readonly title: string;
   readonly status: SessionStatus["type"];
+  readonly statusReason?: string;
   readonly glyph: string;
   readonly current: boolean;
   readonly running: boolean;

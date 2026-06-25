@@ -1,6 +1,7 @@
+import { homedir } from "node:os";
 import { describe, expect, it } from "vitest";
 
-import { buildSessionEntries, SESSION_GLYPHS, SESSION_TITLE_COLUMNS } from "../sessions";
+import { buildSessionEntries, currentSessionProjectPath, SESSION_GLYPHS, SESSION_TITLE_COLUMNS } from "../sessions";
 import { displayWidth } from "../task-metadata";
 import type { Session, SessionStatus } from "../types";
 
@@ -43,7 +44,7 @@ describe("buildSessionEntries", () => {
     expect(rows.map((row) => row.status)).toEqual(["idle", "busy", "retry"]);
     expect(rows[0]).toMatchObject({ current: true, glyph: SESSION_GLYPHS.current });
     expect(rows[1]).toMatchObject({ running: true, glyph: SESSION_GLYPHS.busy, title: "Build plugin" });
-    expect(rows[2]).toMatchObject({ running: true, glyph: SESSION_GLYPHS.retry });
+    expect(rows[2]).toMatchObject({ running: true, glyph: SESSION_GLYPHS.retry, statusReason: "rate limited" });
   });
 
   it("T-SE-02 handles empty sessions and missing statuses as idle rows", () => {
@@ -111,19 +112,24 @@ describe("buildSessionEntries", () => {
     expect(rows.map((row) => row.sessionID)).toEqual(["parent-1", "later-1"]);
   });
 
-  it("T-SE-06 exposes only operation state in the secondary session line", () => {
-    const rows = buildSessionEntries(
-      [session("s1", "Idle work", 1_000, { directory: "/home/bing72/opencode-plugin" })],
-      new Map<string, SessionStatus>(),
-      {
-        currentSessionId: "other",
-        now: 70_000,
-      },
-    );
+  it("T-SE-06 derives a compact current session project path for the tab header", () => {
+    const current = session("s1", "Idle work", 1_000, { directory: `${homedir()}/opencode-plugin` });
+    const nested = session("nested", "Nested work", 2_000, { directory: `${homedir()}/work/opencode-plugin` });
+    const sessions = [current, nested];
+
+    expect(currentSessionProjectPath(sessions, "s1")).toBe("~/opencode-plugin");
+    expect(currentSessionProjectPath(sessions, "nested")).toBe("~/work/opencode-plugin");
+    expect(currentSessionProjectPath(sessions, "missing")).toBeUndefined();
+
+    const rows = buildSessionEntries([current], new Map<string, SessionStatus>(), {
+      currentSessionId: "other",
+      now: 70_000,
+    });
 
     expect(rows).toHaveLength(1);
     const row = rows[0];
     if (row === undefined) throw new Error("Expected one session row");
+    expect(row).not.toHaveProperty("statusReason");
     expect(row.detail).toBe("Idle work\nidle\nUpdated 1m ago");
     expect(row.detail).not.toContain("/home/bing72/opencode-plugin");
   });
@@ -185,6 +191,71 @@ describe("buildSessionEntries", () => {
     );
 
     expect(rows.map((row) => row.sessionID)).toEqual(["current"]);
+    expect(rows[0]).toMatchObject({ current: true, hideable: false });
+  });
+
+  it("T-SE-11 marks an idle parent busy while a hidden child session is busy", () => {
+    const statuses = new Map<string, SessionStatus>([
+      ["parent-1", { type: "idle" }],
+      ["child-1", { type: "busy" }],
+    ]);
+
+    const rows = buildSessionEntries(
+      [session("parent-1", "Main work", 40_000), session("child-1", "Subagent work", 50_000, { parentID: "parent-1" })],
+      statuses,
+      {
+        currentSessionId: "parent-1",
+        now: 60_000,
+      },
+    );
+
+    expect(rows.map((row) => row.sessionID)).toEqual(["parent-1"]);
+    expect(rows[0]).toMatchObject({ status: "busy", running: true, glyph: SESSION_GLYPHS.current });
+  });
+
+  it("T-SE-12 marks a root-only current session busy from child activity", () => {
+    const rows = buildSessionEntries(
+      [session("parent-1", "Main work", 40_000)],
+      new Map<string, SessionStatus>([["parent-1", { type: "idle" }]]),
+      {
+        currentSessionId: "parent-1",
+        now: 60_000,
+        childActivityStatuses: new Map([["parent-1", "busy"]]),
+      },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "busy", running: true });
+  });
+
+  it("T-SE-13 uses coarse session age units in row details", () => {
+    const now = 100_000_000;
+    const rows = buildSessionEntries(
+      [session("hour-old", "Hour old", now - 61 * 60_000), session("day-old", "Day old", now - 25 * 3_600_000)],
+      new Map<string, SessionStatus>(),
+      {
+        currentSessionId: "other",
+        now,
+      },
+    );
+
+    expect(rows.map((row) => row.detail)).toEqual(["Hour old\nidle\nUpdated 1h ago", "Day old\nidle\nUpdated 1d ago"]);
+  });
+
+  it("T-SE-14 uses a filled circle glyph for the current session marker", () => {
+    const rows = buildSessionEntries(
+      [session("current", "Current work", 50_000), session("other", "Other work", 40_000)],
+      new Map<string, SessionStatus>(),
+      {
+        currentSessionId: "current",
+        now: 60_000,
+      },
+    );
+
+    expect(rows.map((row) => [row.sessionID, row.glyph])).toEqual([
+      ["current", "●"],
+      ["other", SESSION_GLYPHS.idle],
+    ]);
     expect(rows[0]).toMatchObject({ current: true, hideable: false });
   });
 });
