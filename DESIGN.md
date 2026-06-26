@@ -6,11 +6,12 @@ This is a terminal-native observability panel for opencode sessions. It should f
 
 ## 2. Color Tokens
 
-- `accent`: host theme accent or primary; used for active tabs and live/running rows.
+- `accent`: host theme accent or primary; used for active tabs and live agent rows.
+- `info`: host theme info; used for busy session status text and session glyphs.
 - `muted`: host theme textMuted; used for clocks, durations, inactive tabs, and idle rows.
 - `success`: host theme success; used for completed work.
 - `warning`: host theme warning; used for retry/rate-limited states and todo rows.
-- `error`: host theme error; used for failed rows.
+- `error`: host theme error; used for failed rows and confirmed destructive row actions.
 - `text`: host theme text; used for primary labels.
 
 ## 3. Typography
@@ -28,16 +29,18 @@ This is a terminal-native observability panel for opencode sessions. It should f
 ## 5. Components
 
 - `AgentsPanel`: latest visible sub-agent batch, always shows a header and empty state.
-- `TimelinePanel`: request/todo/sub-agent high-level history, click opens detail dialog.
+- `TimelinePanel`: user query timeline built from real User Arguments, click opens detail dialog.
 - `SessionTabs`: `Timeline` and `Sessions`, click switches active panel.
-- `SessionsPanel`: recent opencode sessions with status glyph, title, updated age, and click navigation.
+- `SessionsPanel`: recent opencode sessions with status glyph, title, updated age, click navigation, muted `h` hide action, and error-colored `×` delete request on non-current rows.
 
 ## 6. Interaction
 
 - Mouse click is the primary interaction for tabs, timeline details, agent rows, and session navigation.
+- Session row `h` hides non-current sessions through plugin-local hidden-session persistence; current sessions do not show hide actions.
+- Session row `×` requests permanent deletion only on non-current sessions. It opens a final confirmation dialog; cancel clears the dialog without deleting, and confirm is the only path that calls the destructive session delete API.
 - Keyboard shortcuts are avoided unless the opencode keymap binding is known not to conflict with prompt editing.
 
 ## 7. Non-Goals
 
 - No web-style animations, gradients, icons, or decorative emoji.
-- No destructive session actions from this plugin.
+- No destructive session actions without a final confirmation step.

@@ -4,6 +4,13 @@ These instructions are for an OpenCode agent. Install the plugin from GitHub, th
 
 On Windows PowerShell, prefer the PowerShell commands below. Do not run the Bash block through PowerShell, and do not require `bun install` if Bun or OpenCode's bundled Bun runtime is crashing.
 
+## Runtime behavior
+
+- Timeline rows show only real user queries from User Arguments.
+- Sessions is the default tab. It keeps the currently viewed session at the top and uses the host theme info color for busy sessions.
+- Use the mouse to switch Sessions/Timeline tabs. The plugin does not register a Ctrl+Tab shortcut.
+- On non-current session rows, `h` hides the row and `×` opens a final confirmation dialog before permanent deletion.
+
 ## Agent task
 
 Install and configure `opencode-session-timeline` for the current user.
