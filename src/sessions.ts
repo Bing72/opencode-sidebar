@@ -39,9 +39,9 @@ export function buildSessionEntries(
   const childStatuses = activeChildStatusByParent(sessions, statuses);
   const rows: SessionEntry[] = [];
   for (const session of sessions) {
-    if (session.parentID !== undefined) continue;
-    const status = effectiveSessionStatus(session.id, statuses, childStatuses, options.childActivityStatuses);
     const current = session.id === options.currentSessionId;
+    if (session.parentID !== undefined && !current) continue;
+    const status = effectiveSessionStatus(session.id, statuses, childStatuses, options.childActivityStatuses);
     if (!current && options.hiddenSessionIds?.has(session.id)) continue;
     if (rows.length >= limit) {
       if (!current) continue;
@@ -61,6 +61,14 @@ export function buildSessionEntries(
       updatedMs,
       detail: `${session.title}\n${status}\nUpdated ${formatSessionAge(updatedMs)} ago`,
     });
+  }
+  const currentIndex = rows.findIndex((row) => row.current);
+  if (currentIndex > 0) {
+    const current = rows[currentIndex];
+    if (current !== undefined) {
+      rows.splice(currentIndex, 1);
+      rows.unshift(current);
+    }
   }
   return rows;
 }

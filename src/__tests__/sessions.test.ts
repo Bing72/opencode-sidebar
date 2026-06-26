@@ -258,4 +258,43 @@ describe("buildSessionEntries", () => {
     ]);
     expect(rows[0]).toMatchObject({ current: true, hideable: false });
   });
+
+  it("T-SE-15 moves the visible current session to the first capped row", () => {
+    const rows = buildSessionEntries(
+      [
+        session("recent", "Recent work", 70_000),
+        session("current", "Current work", 60_000),
+        session("older", "Older work", 50_000),
+      ],
+      new Map<string, SessionStatus>(),
+      {
+        currentSessionId: "current",
+        now: 80_000,
+        maxSessions: 2,
+      },
+    );
+
+    expect(rows.map((row) => row.sessionID)).toEqual(["current", "recent"]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ current: true, hideable: false });
+  });
+
+  it("T-SE-16 includes the viewed child session as the first row", () => {
+    const rows = buildSessionEntries(
+      [
+        session("parent", "Parent work", 70_000),
+        session("child", "Child work", 60_000, { parentID: "parent" }),
+        session("other", "Other work", 50_000),
+      ],
+      new Map<string, SessionStatus>(),
+      {
+        currentSessionId: "child",
+        now: 80_000,
+        maxSessions: 2,
+      },
+    );
+
+    expect(rows.map((row) => row.sessionID)).toEqual(["child", "parent"]);
+    expect(rows[0]).toMatchObject({ current: true, hideable: false });
+  });
 });
