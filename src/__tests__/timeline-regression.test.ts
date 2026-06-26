@@ -76,4 +76,77 @@ describe("timeline regression contract", () => {
 
     expect(rows).toEqual([]);
   });
+
+  it("T-TL-07 uses only User Arguments payload from wrapper prompts", () => {
+    const user = userMsg(5000, "u1");
+    const [entry] = buildTimeline(
+      [user],
+      partsMap([
+        "u1",
+        [
+          textPart(
+            "u1",
+            [
+              "<ultrawork-mode>",
+              "Internal wrapper instructions",
+              "",
+              "## User Arguments:",
+              "",
+              "Fix the busy session color",
+              "Keep retry and idle colors unchanged",
+              "",
+              "```",
+              "<system-reminder>ignore this wrapper tail</system-reminder>",
+            ].join("\n"),
+            5000,
+          ),
+        ],
+      ]),
+    );
+
+    expect(entry).toMatchObject({
+      label: "Fix the busy session color",
+      detail: "Fix the busy session color\nKeep retry and idle colors unchanged",
+    });
+  });
+
+  it("T-TL-08 preserves fenced code blocks inside User Arguments payload", () => {
+    const user = userMsg(5000, "u1");
+    const [entry] = buildTimeline(
+      [user],
+      partsMap([
+        "u1",
+        [
+          textPart(
+            "u1",
+            [
+              "<ultrawork-mode>",
+              "Internal wrapper instructions",
+              "",
+              "## User Arguments:",
+              "",
+              "Fix this parser",
+              "```ts",
+              "const value = 1;",
+              "```",
+              "Keep the code fence in the timeline detail",
+              "<system-reminder>ignore this wrapper tail</system-reminder>",
+            ].join("\n"),
+            5000,
+          ),
+        ],
+      ]),
+    );
+
+    expect(entry).toMatchObject({
+      label: "Fix this parser",
+      detail: [
+        "Fix this parser",
+        "```ts",
+        "const value = 1;",
+        "```",
+        "Keep the code fence in the timeline detail",
+      ].join("\n"),
+    });
+  });
 });
