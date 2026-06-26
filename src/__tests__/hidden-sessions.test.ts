@@ -7,6 +7,7 @@ import {
   hiddenSessionIdsFromValue,
   persistHiddenSessionIds,
   readHiddenSessionIds,
+  removeHiddenSessionId,
 } from "../hidden-sessions";
 
 function kvStore(initial?: unknown): {
@@ -42,5 +43,11 @@ describe("hidden session persistence", () => {
 
   it("T-HIDE-03 clears hidden ids for the footer recovery action", () => {
     expect([...clearHiddenSessionIds()]).toEqual([]);
+  });
+
+  it("T-HIDE-04 removes a deleted session from persisted hidden ids", () => {
+    const ids = removeHiddenSessionId(new Set(["s1", "s2"]), "s1");
+
+    expect([...ids]).toEqual(["s2"]);
   });
 });

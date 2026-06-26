@@ -26,6 +26,12 @@ export function addHiddenSessionId(ids: ReadonlySet<string>, sessionId: string):
   return new Set([...ids, sessionId]);
 }
 
+export function removeHiddenSessionId(ids: ReadonlySet<string>, sessionId: string): Set<string> {
+  const next = new Set(ids);
+  next.delete(sessionId);
+  return next;
+}
+
 export function clearHiddenSessionIds(): Set<string> {
   return new Set();
 }
