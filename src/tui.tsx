@@ -5,17 +5,11 @@ import { createSignal, type JSX } from "solid-js";
 
 import { resolveChildIdFrom } from "./agents";
 import { createCoalescer } from "./coalesce";
-import {
-  addHiddenSessionId,
-  clearHiddenSessionIds,
-  persistHiddenSessionIds,
-  readHiddenSessionIds,
-} from "./hidden-sessions";
 import { capEnvelopes, capSessions, type Envelope, mergeEnvelopes, sanitizeEnvelope } from "./history";
+import { createSessionActions } from "./session-actions";
 import { createGlobalSessionRefreshClient, createSessionRefresher } from "./session-refresh";
 import { type ImmediateSessionEvent, sessionStatusesAfterEvent } from "./session-status-events";
 import { currentSessionProjectPath } from "./sessions";
-import { registerSidebarTabKeymap } from "./sidebar-keymap";
 import { DEFAULT_SIDEBAR_TAB, SIDEBAR_CONTENT_ORDER, shouldRefreshSessionsOnTabSelect } from "./tabs";
 import {
   canFetchChildren,
@@ -59,7 +53,6 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   const [sessions, setSessions] = createSignal<ReadonlyArray<Session>>([]);
   const [sessionStatuses, setSessionStatuses] = createSignal<ReadonlyMap<string, SessionStatus>>(new Map());
   const [sessionError, setSessionError] = createSignal<string | undefined>();
-  const [hiddenSessionIds, setHiddenSessionIds] = createSignal<ReadonlySet<string>>(readHiddenSessionIds(api.kv));
   const inFlight = new Set<string>();
   const failed = new Set<string>();
   let disposed = false;
@@ -177,18 +170,13 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     setActiveTab(tab);
     if (shouldRefreshSessionsOnTabSelect(tab)) refreshSessions(true);
   };
-  const hideSession = (sessionId: string): void => {
-    setHiddenSessionIds((prev) => {
-      const next = addHiddenSessionId(prev, sessionId);
-      persistHiddenSessionIds(api.kv, next);
-      return next;
-    });
-  };
-  const showHiddenSessions = (): void => {
-    const next = clearHiddenSessionIds();
-    persistHiddenSessionIds(api.kv, next);
-    setHiddenSessionIds(next);
-  };
+  const sessionActions = createSessionActions({
+    api,
+    signals: { sessions, setSessions, setSessionStatuses, setSessionError, setHistory, setChildren },
+    caches: { inFlight, failed, childrenInFlight, childrenRetryAt },
+    isDisposed: () => disposed,
+    refreshSessions,
+  });
   const ticker = setInterval(() => setNow(Date.now()), TICK_MS);
   const unsubs = [
     api.event.on("session.status", onSessionStatus),
@@ -221,13 +209,11 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     sessions,
     sessionStatuses,
     sessionError,
-    hiddenSessionIds,
-    hideSession,
-    showHiddenSessions,
+    hiddenSessionIds: sessionActions.hiddenSessionIds,
+    hideSession: sessionActions.hideSession,
+    confirmDeleteSession: sessionActions.confirmDeleteSession,
+    showHiddenSessions: sessionActions.showHiddenSessions,
   });
-
-  registerSidebarTabKeymap(api, activeTab, selectTab);
-
   api.slots.register({
     order: 55,
     slots: {

@@ -3,17 +3,16 @@
 import type { TuiPluginApi, TuiThemeCurrent } from "@opencode-ai/plugin/tui";
 import type { JSX } from "solid-js";
 
-import { buildAgents, hasUnresolvedNav } from "./agents";
 import { computeElapsed, displayNow, tickNow } from "./elapsed";
 import { formatClock, formatLiveDuration, rowDurationText } from "./format";
 import type { Envelope } from "./history";
-import { buildSessionEntries } from "./sessions";
 import { buildTimeline, GLYPHS } from "./timeline";
-import type { AgentEntry, Part, PluginOptions, Session, SessionStatus, TimelineEntry, TimelineKind } from "./types";
-import { renderAgentRow, renderSessionRows } from "./ui-rows";
-import { renderHiddenSessionsFooter } from "./ui-session-footer";
+import type { Part, PluginOptions, Session, SessionStatus, TimelineEntry, TimelineKind } from "./types";
+import { agentRowsForSession } from "./ui-agent-rows";
+import { renderAgentRow } from "./ui-rows";
 
 export { handleHiddenSessionsFooterMouseUp, hiddenSessionsFooterLabel } from "./ui-session-footer";
+export { renderSessionsPanel } from "./ui-sessions-panel";
 
 export interface PanelDeps {
   readonly api: TuiPluginApi;
@@ -32,11 +31,11 @@ export interface PanelDeps {
   readonly sessionError: () => string | undefined;
   readonly hiddenSessionIds: () => ReadonlySet<string>;
   readonly hideSession: (sessionId: string) => void;
+  readonly confirmDeleteSession: (sessionId: string) => void;
   readonly showHiddenSessions: () => void;
 }
 
 const DEFAULT_MAX_ROWS = 50;
-const DEFAULT_MAX_SESSIONS = 20;
 
 export function renderAgentsPanel(deps: PanelDeps, sessionId: string): JSX.Element {
   const rows = agentRowsForSession(deps, sessionId);
@@ -88,63 +87,6 @@ export function renderTimelinePanel(deps: PanelDeps, sessionId: string): JSX.Ele
       {entries.map((entry) => renderTimelineRow(deps, entry, sessionId, theme, liveNow))}
     </box>
   ) as unknown as JSX.Element;
-}
-
-export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Element {
-  deps.refreshSessions();
-  const theme = deps.api.theme.current;
-  const hiddenIds = deps.hiddenSessionIds();
-  const childActivityStatuses = childActivityStatusesForCurrentSession(deps, sessionId);
-  const rows = buildSessionEntries(deps.sessions(), deps.sessionStatuses(), {
-    currentSessionId: sessionId,
-    now: deps.now(),
-    maxSessions: deps.options.maxSessions ?? DEFAULT_MAX_SESSIONS,
-    hiddenSessionIds: hiddenIds,
-    childActivityStatuses,
-  });
-  const error = deps.sessionError();
-  return (
-    <box flexDirection="column">
-      {error === undefined ? null : (
-        <box height={1}>
-          <text fg={theme.warning}>{error}</text>
-        </box>
-      )}
-      {rows.length === 0 ? (
-        <box height={1}>
-          <text fg={theme.textMuted}>{"No sessions"}</text>
-        </box>
-      ) : (
-        renderSessionRows(rows, theme, (id) => deps.api.route.navigate("session", { sessionID: id }), deps.hideSession)
-      )}
-      {renderHiddenSessionsFooter(hiddenIds.size, theme, deps.showHiddenSessions)}
-    </box>
-  ) as unknown as JSX.Element;
-}
-
-function agentRowsForSession(deps: PanelDeps, sessionId: string): AgentEntry[] {
-  deps.childrenVersion();
-  const rows = buildAgents(deps.flattenParts(deps.mergedFor(sessionId)), {
-    statusOf: (id) => deps.api.state.session.status(id),
-    resolveChildId: deps.makeResolveChildId(sessionId),
-  });
-  if (hasUnresolvedNav(rows)) deps.ensureChildren(sessionId);
-  return rows;
-}
-
-function childActivityStatusesForCurrentSession(
-  deps: PanelDeps,
-  sessionId: string,
-): ReadonlyMap<string, SessionStatus["type"]> | undefined {
-  const status = childActivityStatus(agentRowsForSession(deps, sessionId));
-  if (status === undefined) return undefined;
-  return new Map([[sessionId, status]]);
-}
-
-function childActivityStatus(rows: ReadonlyArray<AgentEntry>): SessionStatus["type"] | undefined {
-  if (rows.some((entry) => entry.status === "rate-limited")) return "retry";
-  if (rows.some((entry) => entry.running)) return "busy";
-  return undefined;
 }
 
 export function renderPromptTimer(deps: PanelDeps, sessionId: string): JSX.Element | null {

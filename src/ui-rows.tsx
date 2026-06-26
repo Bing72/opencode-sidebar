@@ -14,14 +14,21 @@ export interface PaletteOptions {
 
 interface SessionColorTheme<Color> {
   readonly accent?: Color;
+  readonly info?: Color;
   readonly primary: Color;
   readonly warning: Color;
   readonly success?: Color;
   readonly textMuted: Color;
 }
 
-interface HideMouseEvent {
+interface SessionActionMouseEvent {
   readonly stopPropagation: () => void;
+}
+
+export interface SessionRowActions {
+  readonly openSession: (sessionId: string) => void;
+  readonly hideSession?: (sessionId: string) => void;
+  readonly confirmDeleteSession?: (sessionId: string) => void;
 }
 
 export interface SessionGlyphTitleParts {
@@ -80,7 +87,7 @@ export function tabHeaderProjectParts(projectPath: string | undefined): TabHeade
 export function sessionStatusColor<Color>(status: SessionStatus["type"], theme: SessionColorTheme<Color>): Color {
   switch (status) {
     case "busy":
-      return theme.accent ?? theme.primary;
+      return theme.info ?? theme.accent ?? theme.primary;
     case "retry":
       return theme.warning;
     case "idle":
@@ -94,17 +101,38 @@ export function currentSessionColor<Color>(theme: SessionColorTheme<Color>): Col
   return theme.success ?? theme.primary;
 }
 
-export function sessionHideActionColor<Color>(theme: { readonly error: Color }): Color {
+export function sessionGlyphColor<Color>(
+  entry: Pick<SessionEntry, "current" | "status">,
+  theme: SessionColorTheme<Color>,
+): Color {
+  if (entry.status === "busy") return sessionStatusColor(entry.status, theme);
+  return entry.current ? currentSessionColor(theme) : sessionStatusColor(entry.status, theme);
+}
+
+export function sessionHideActionColor<Color>(theme: { readonly textMuted: Color }): Color {
+  return theme.textMuted;
+}
+
+export function sessionDeleteActionColor<Color>(theme: { readonly error: Color }): Color {
   return theme.error;
 }
 
 export function handleSessionHideMouseUp(
-  event: HideMouseEvent,
+  event: SessionActionMouseEvent,
   entry: Pick<SessionEntry, "sessionID" | "hideable">,
   hideSession: (sessionId: string) => void,
 ): void {
   event.stopPropagation();
   if (entry.hideable) hideSession(entry.sessionID);
+}
+
+export function handleSessionDeleteMouseUp(
+  event: SessionActionMouseEvent,
+  entry: Pick<SessionEntry, "sessionID" | "hideable">,
+  confirmDeleteSession: (sessionId: string) => void,
+): void {
+  event.stopPropagation();
+  if (entry.hideable) confirmDeleteSession(entry.sessionID);
 }
 
 export function renderTabs(args: RenderTabsArgs): JSX.Element {
@@ -174,10 +202,11 @@ export function renderAgentRow(
 export function renderSessionRows(
   rows: ReadonlyArray<SessionEntry>,
   theme: TuiThemeCurrent,
-  openSession: (sessionId: string) => void,
-  hideSession?: (sessionId: string) => void,
+  actions: SessionRowActions,
 ): JSX.Element[] {
   return rows.map((entry) => {
+    const hideSession = actions.hideSession;
+    const confirmDeleteSession = actions.confirmDeleteSession;
     const titleParts = sessionGlyphTitleParts(entry);
     const statusParts = sessionStatusReasonParts(entry);
     return (
@@ -185,16 +214,12 @@ export function renderSessionRows(
         flexDirection="column"
         onMouseUp={(event) => {
           event.stopPropagation();
-          openSession(entry.sessionID);
+          actions.openSession(entry.sessionID);
         }}
       >
         <box height={1} flexDirection="row" justifyContent="space-between">
           <box flexDirection="row" flexShrink={1} overflow="hidden" minWidth={0}>
-            <text
-              fg={entry.current ? currentSessionColor(theme) : sessionStatusColor(entry.status, theme)}
-              wrapMode="none"
-              flexShrink={0}
-            >
+            <text fg={sessionGlyphColor(entry, theme)} wrapMode="none" flexShrink={0}>
               {titleParts.glyph}
             </text>
             <text fg={theme.text} wrapMode="none" flexShrink={0}>
@@ -210,6 +235,14 @@ export function renderSessionRows(
               <text
                 fg={sessionHideActionColor(theme)}
                 onMouseUp={(event) => handleSessionHideMouseUp(event, entry, hideSession)}
+              >
+                {" h"}
+              </text>
+            ) : null}
+            {entry.hideable && confirmDeleteSession !== undefined ? (
+              <text
+                fg={sessionDeleteActionColor(theme)}
+                onMouseUp={(event) => handleSessionDeleteMouseUp(event, entry, confirmDeleteSession)}
               >
                 {" ×"}
               </text>
