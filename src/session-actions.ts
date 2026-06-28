@@ -1,13 +1,5 @@
-import { type Accessor, createSignal, type Setter } from "solid-js";
+import type { Accessor, Setter } from "solid-js";
 
-import {
-  addHiddenSessionId,
-  clearHiddenSessionIds,
-  type HiddenSessionsKV,
-  persistHiddenSessionIds,
-  readHiddenSessionIds,
-  removeHiddenSessionId,
-} from "./hidden-sessions";
 import type { Envelope } from "./history";
 import {
   deleteSessionById,
@@ -18,7 +10,6 @@ import {
 import type { Session, SessionStatus } from "./types";
 
 export interface SessionActionApi {
-  readonly kv: HiddenSessionsKV;
   readonly ui: SessionDeleteConfirmationUi;
   readonly client: {
     readonly session: SessionDeleteClient;
@@ -50,29 +41,11 @@ export interface SessionActionControllerArgs {
 }
 
 export interface SessionActions {
-  readonly hiddenSessionIds: Accessor<ReadonlySet<string>>;
-  readonly hideSession: (sessionId: string) => void;
-  readonly showHiddenSessions: () => void;
   readonly confirmDeleteSession: (sessionId: string) => void;
 }
 
 export function createSessionActions(args: SessionActionControllerArgs): SessionActions {
-  const [hiddenSessionIds, setHiddenSessionIds] = createSignal<ReadonlySet<string>>(readHiddenSessionIds(args.api.kv));
   const deletingSessionIds = new Set<string>();
-
-  const hideSession = (sessionId: string): void => {
-    setHiddenSessionIds((prev) => {
-      const next = addHiddenSessionId(prev, sessionId);
-      persistHiddenSessionIds(args.api.kv, next);
-      return next;
-    });
-  };
-
-  const showHiddenSessions = (): void => {
-    const next = clearHiddenSessionIds();
-    persistHiddenSessionIds(args.api.kv, next);
-    setHiddenSessionIds(next);
-  };
 
   const sessionTitleFor = (sessionId: string): string => {
     const title = args.signals.sessions().find((session) => session.id === sessionId)?.title;
@@ -94,12 +67,6 @@ export function createSessionActions(args: SessionActionControllerArgs): Session
         args.caches.failed.delete(sessionId);
         args.caches.childrenInFlight.delete(sessionId);
         args.caches.childrenRetryAt.delete(sessionId);
-        setHiddenSessionIds((prev) => {
-          if (!prev.has(sessionId)) return prev;
-          const next = removeHiddenSessionId(prev, sessionId);
-          persistHiddenSessionIds(args.api.kv, next);
-          return next;
-        });
         args.signals.setSessionError(undefined);
         args.refreshSessions(true);
       })
@@ -123,7 +90,7 @@ export function createSessionActions(args: SessionActionControllerArgs): Session
     });
   };
 
-  return { hiddenSessionIds, hideSession, showHiddenSessions, confirmDeleteSession };
+  return { confirmDeleteSession };
 }
 
 function withoutMapEntry<Value>(map: ReadonlyMap<string, Value>, key: string): Map<string, Value> {

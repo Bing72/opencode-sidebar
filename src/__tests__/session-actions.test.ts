@@ -2,17 +2,10 @@ import type { JSX } from "solid-js";
 import { createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 
-import { HIDDEN_SESSIONS_KEY } from "../hidden-sessions";
 import type { Envelope } from "../history";
 import { createSessionActions, type SessionActionApi } from "../session-actions";
 import type { SessionDeleteConfirmProps, SessionDeleteResult } from "../session-deletion";
 import type { Session, SessionStatus } from "../types";
-
-interface KvHarness {
-  readonly values: Map<string, unknown>;
-  readonly get: (key: string, fallback?: unknown) => unknown;
-  readonly set: (key: string, value: unknown) => void;
-}
 
 interface ActionHarness {
   readonly actions: ReturnType<typeof createSessionActions>;
@@ -31,7 +24,6 @@ interface ActionHarness {
     readonly childrenInFlight: Set<string>;
     readonly childrenRetryAt: Map<string, number>;
   };
-  readonly kv: KvHarness;
 }
 
 interface Deferred<Value> {
@@ -71,22 +63,10 @@ function deferred<Value>(): Deferred<Value> {
   };
 }
 
-function kvStore(initial: unknown): KvHarness {
-  const values = new Map<string, unknown>([[HIDDEN_SESSIONS_KEY, initial]]);
-  return {
-    values,
-    get: (key, fallback) => (values.has(key) ? values.get(key) : fallback),
-    set: (key, value) => {
-      values.set(key, value);
-    },
-  };
-}
-
 function actionHarness(deleteImpl: (sessionID: string) => Promise<SessionDeleteResult>): ActionHarness {
   const calls: Array<{ readonly sessionID: string }> = [];
   const prompts: SessionDeleteConfirmProps[] = [];
   let renderDialog: (() => JSX.Element) | undefined;
-  const kv = kvStore(["s1", "s2"]);
   const [sessions, setSessions] = createSignal<ReadonlyArray<Session>>([
     session("s1", "Delete me"),
     session("s2", "Keep me"),
@@ -118,7 +98,6 @@ function actionHarness(deleteImpl: (sessionID: string) => Promise<SessionDeleteR
     childrenRetryAt: new Map([["s1", 123]]),
   };
   const api: SessionActionApi = {
-    kv,
     ui: {
       DialogConfirm: (props) => {
         prompts.push(props);
@@ -162,7 +141,6 @@ function actionHarness(deleteImpl: (sessionID: string) => Promise<SessionDeleteR
     sessionError,
     refreshCalls,
     caches,
-    kv,
   };
 }
 
@@ -196,8 +174,6 @@ describe("session action controller", () => {
     expect(harness.caches.failed.has("s1")).toBe(false);
     expect(harness.caches.childrenInFlight.has("s1")).toBe(false);
     expect(harness.caches.childrenRetryAt.has("s1")).toBe(false);
-    expect([...harness.actions.hiddenSessionIds()]).toEqual(["s2"]);
-    expect(harness.kv.values.get(HIDDEN_SESSIONS_KEY)).toEqual(["s2"]);
     expect(harness.sessionError()).toBeUndefined();
     expect(harness.refreshCalls).toEqual([true]);
   });
@@ -213,8 +189,6 @@ describe("session action controller", () => {
     expect(harness.calls).toEqual([{ sessionID: "s1" }]);
     expect(harness.sessions().map((item) => item.id)).toEqual(["s1", "s2"]);
     expect(harness.statuses().has("s1")).toBe(true);
-    expect([...harness.actions.hiddenSessionIds()]).toEqual(["s1", "s2"]);
-    expect(harness.kv.values.get(HIDDEN_SESSIONS_KEY)).toEqual(["s1", "s2"]);
     expect(harness.sessionError()).toBe("Failed to delete session: boom");
     expect(harness.refreshCalls).toEqual([]);
   });
