@@ -11,7 +11,8 @@ This is a terminal-native observability panel for opencode sessions. It should f
 - `muted`: host theme textMuted; used for clocks, durations, inactive tabs, and idle rows.
 - `success`: host theme success; used for completed work.
 - `warning`: host theme warning; used for retry/rate-limited states and todo rows.
-- `error`: host theme error; used for failed rows and confirmed destructive row actions.
+- `error`: host theme error; used for failed rows.
+- `sessionActionDelete`: soft red `#EF4444`; used for the non-current session delete request.
 - `text`: host theme text; used for primary labels.
 
 ## 3. Typography
@@ -31,12 +32,11 @@ This is a terminal-native observability panel for opencode sessions. It should f
 - `AgentsPanel`: latest visible sub-agent batch, always shows a header and empty state.
 - `TimelinePanel`: user query timeline built from real User Arguments, click opens detail dialog.
 - `SessionTabs`: `Timeline` and `Sessions`, click switches active panel.
-- `SessionsPanel`: recent opencode sessions with status glyph, title, updated age, click navigation, muted `h` hide action, and error-colored `×` delete request on non-current rows.
+- `SessionsPanel`: recent opencode sessions with status glyph, title, updated age, click navigation, and soft-red `×` delete request on non-current rows.
 
 ## 6. Interaction
 
 - Mouse click is the primary interaction for tabs, timeline details, agent rows, and session navigation.
-- Session row `h` hides non-current sessions through plugin-local hidden-session persistence; current sessions do not show hide actions.
 - Session row `×` requests permanent deletion only on non-current sessions. It opens a final confirmation dialog; cancel clears the dialog without deleting, and confirm is the only path that calls the destructive session delete API.
 - Keyboard shortcuts are avoided unless the opencode keymap binding is known not to conflict with prompt editing.
 

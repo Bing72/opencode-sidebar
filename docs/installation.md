@@ -9,7 +9,7 @@ On Windows PowerShell, prefer the PowerShell commands below. Do not run the Bash
 - Timeline rows show only real user queries from User Arguments.
 - Sessions is the default tab. It keeps the currently viewed session at the top and uses the host theme info color for busy sessions.
 - Use the mouse to switch Sessions/Timeline tabs. The plugin does not register a Ctrl+Tab shortcut.
-- On non-current session rows, `h` hides the row and `×` opens a final confirmation dialog before permanent deletion.
+- On non-current session rows, `×` opens a final confirmation dialog before permanent deletion.
 
 ## Agent task
 

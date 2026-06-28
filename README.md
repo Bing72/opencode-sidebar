@@ -6,7 +6,6 @@ Local OpenCode TUI plugin based on `coin-seeker/opencode-timeline`, with an adde
 
 - The Timeline tab shows only real user queries from User Arguments; wrapper prompts, tool rows, and system reminders are hidden.
 - The Sessions tab starts on the currently viewed session, keeps that session at the top, and marks busy sessions with the host theme info color.
-- Click `h` on a non-current session row to hide it from the plugin list. Use the hidden footer to show hidden sessions again.
 - Click `×` on a non-current session row to delete it permanently. A final confirmation dialog is required before the plugin calls the OpenCode session delete API.
 - Sessions/Timeline switching is mouse-driven through the tab labels; there is no Ctrl+Tab shortcut.
 
