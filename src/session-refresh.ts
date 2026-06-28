@@ -6,6 +6,10 @@ export interface SessionRefreshClient {
   readonly status: () => Promise<Readonly<Record<string, SessionStatus>> | undefined>;
 }
 
+type SessionStatusUpdate =
+  | ReadonlyMap<string, SessionStatus>
+  | ((previous: ReadonlyMap<string, SessionStatus>) => ReadonlyMap<string, SessionStatus>);
+
 export const DEFAULT_SESSION_FETCH_LIMIT = 100;
 
 export interface GlobalSessionListQuery {
@@ -29,9 +33,10 @@ interface GlobalSessionSource {
 export interface SessionRefreshSink {
   readonly isDisposed: () => boolean;
   readonly now: () => number;
+  readonly onRefreshSuccess?: (force: boolean) => void;
   readonly setError: (message: string | undefined) => void;
   readonly setSessions: (sessions: ReadonlyArray<Session>) => void;
-  readonly setStatuses: (statuses: ReadonlyMap<string, SessionStatus>) => void;
+  readonly setStatuses: (statuses: SessionStatusUpdate) => void;
 }
 
 interface RefreshState {
@@ -82,8 +87,10 @@ export function createSessionRefresher(
       .then(([sessions, statuses]) => {
         if (sink.isDisposed()) return;
         sink.setSessions(sessions ?? []);
-        sink.setStatuses(new Map(Object.entries(statuses ?? {})));
+        const refreshedStatuses = new Map(Object.entries(statuses ?? {}));
+        sink.setStatuses((previous) => mergeSessionStatuses(previous, refreshedStatuses));
         sink.setError(undefined);
+        sink.onRefreshSuccess?.(force);
       })
       .catch((error: unknown) => {
         if (sink.isDisposed()) return;
@@ -97,6 +104,18 @@ export function createSessionRefresher(
   };
 
   return refresh;
+}
+
+function mergeSessionStatuses(
+  previous: ReadonlyMap<string, SessionStatus>,
+  refreshed: ReadonlyMap<string, SessionStatus>,
+): ReadonlyMap<string, SessionStatus> {
+  const next = new Map<string, SessionStatus>();
+  for (const [id, status] of previous) {
+    if (!refreshed.has(id) && status.type !== "idle") next.set(id, status);
+  }
+  for (const [id, status] of refreshed) next.set(id, status);
+  return next;
 }
 
 function requestRefresh(state: RefreshState, now: number, force: boolean): RefreshDecision {

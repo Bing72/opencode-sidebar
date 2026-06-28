@@ -18,6 +18,29 @@ interface GlobalSessionListQuery {
   readonly limit: number;
 }
 
+type StatusUpdate =
+  | ReadonlyMap<string, SessionStatus>
+  | ((previous: ReadonlyMap<string, SessionStatus>) => ReadonlyMap<string, SessionStatus>);
+
+function session(id: string): Session {
+  return {
+    id,
+    slug: id,
+    projectID: "project-1",
+    directory: "/repo",
+    title: id,
+    version: "1.17.9",
+    time: { created: 9_000, updated: 10_000 },
+  };
+}
+
+function applyStatusUpdate(
+  previous: ReadonlyMap<string, SessionStatus>,
+  update: StatusUpdate,
+): ReadonlyMap<string, SessionStatus> {
+  return typeof update === "function" ? update(previous) : update;
+}
+
 function deferred<T>(): Deferred<T> {
   let resolveValue: ((value: T) => void) | undefined;
   let rejectValue: ((reason?: unknown) => void) | undefined;
@@ -44,6 +67,7 @@ describe("session refresher", () => {
     const secondStatus = deferred<Readonly<Record<string, SessionStatus>> | undefined>();
     const listResponses = [firstList, secondList];
     const statusResponses = [firstStatus, secondStatus];
+    const successForces: boolean[] = [];
     let listCalls = 0;
 
     const refresh = createSessionRefresher(
@@ -63,6 +87,9 @@ describe("session refresher", () => {
       {
         isDisposed: () => false,
         now: () => 10_000,
+        onRefreshSuccess: (force) => {
+          successForces.push(force);
+        },
         setError: () => undefined,
         setSessions: () => undefined,
         setStatuses: () => undefined,
@@ -77,10 +104,13 @@ describe("session refresher", () => {
     firstStatus.resolve({});
     await flushPromises();
 
+    expect(successForces).toEqual([true]);
     expect(listCalls).toBe(2);
     secondList.resolve([]);
     secondStatus.resolve({});
     await flushPromises();
+
+    expect(successForces).toEqual([true, true]);
   });
 
   it("T-REF-02 ignores rejected session refreshes after disposal", async () => {
@@ -170,5 +200,73 @@ describe("session refresher", () => {
     await flushPromises();
 
     expect(listQueries).toEqual([{ roots: true, limit: DEFAULT_SESSION_FETCH_LIMIT }]);
+  });
+
+  it("T-REF-05 preserves omitted active statuses while applying explicit refresh statuses", async () => {
+    let currentStatuses: ReadonlyMap<string, SessionStatus> = new Map([
+      ["external-busy", { type: "busy" }],
+      ["external-retry", { type: "retry", attempt: 1, message: "Rate limited", next: 20_000 }],
+      ["explicit-idle", { type: "retry", attempt: 2, message: "Backoff", next: 30_000 }],
+      ["stale-idle", { type: "idle" }],
+    ]);
+    const refresh = createSessionRefresher(
+      {
+        list: () => Promise.resolve([session("external-busy"), session("external-retry"), session("explicit-idle")]),
+        status: () =>
+          Promise.resolve({
+            "explicit-idle": { type: "idle" },
+            "new-busy": { type: "busy" },
+          }),
+      },
+      {
+        isDisposed: () => false,
+        now: () => 10_000,
+        setError: () => undefined,
+        setSessions: () => undefined,
+        setStatuses: (update: StatusUpdate) => {
+          currentStatuses = applyStatusUpdate(currentStatuses, update);
+        },
+      },
+    );
+
+    refresh(true);
+    await flushPromises();
+
+    expect(currentStatuses.get("external-busy")).toEqual({ type: "busy" });
+    expect(currentStatuses.get("external-retry")).toEqual({
+      type: "retry",
+      attempt: 1,
+      message: "Rate limited",
+      next: 20_000,
+    });
+    expect(currentStatuses.get("explicit-idle")).toEqual({ type: "idle" });
+    expect(currentStatuses.get("new-busy")).toEqual({ type: "busy" });
+    expect(currentStatuses.has("stale-idle")).toBe(false);
+  });
+
+  it("T-REF-06 notifies the optional success hook with the forced refresh flag", async () => {
+    const successForces: boolean[] = [];
+    const sink = {
+      isDisposed: () => false,
+      now: () => 10_000,
+      onRefreshSuccess: (force: boolean) => {
+        successForces.push(force);
+      },
+      setError: () => undefined,
+      setSessions: () => undefined,
+      setStatuses: () => undefined,
+    };
+    const refresh = createSessionRefresher(
+      {
+        list: () => Promise.resolve([session("success")]),
+        status: () => Promise.resolve({}),
+      },
+      sink,
+    );
+
+    refresh(true);
+    await flushPromises();
+
+    expect(successForces).toEqual([true]);
   });
 });
