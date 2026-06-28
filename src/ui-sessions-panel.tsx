@@ -2,25 +2,37 @@
 
 import type { JSX } from "solid-js";
 
-import { buildSessionEntries } from "./sessions";
-import type { AgentEntry, SessionStatus } from "./types";
+import { type BuildSessionOptions, buildSessionEntries } from "./sessions";
+import type { AgentEntry, Session, SessionStatus } from "./types";
 import { agentRowsForSession } from "./ui-agent-rows";
 import type { PanelDeps } from "./ui-panels";
 import { renderSessionRows } from "./ui-rows";
-import { renderHiddenSessionsFooter } from "./ui-session-footer";
 
 const DEFAULT_MAX_SESSIONS = 20;
 
 export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Element {
   deps.refreshSessions();
   const theme = deps.api.theme.current;
-  const hiddenIds = deps.hiddenSessionIds();
-  const childActivityStatuses = childActivityStatusesForCurrentSession(deps, sessionId);
-  const rows = buildSessionEntries(deps.sessions(), deps.sessionStatuses(), {
+  const sessions = deps.sessions();
+  const sessionStatuses = deps.sessionStatuses();
+  const reloadGeneration = deps.visibleHistoryRefreshGeneration();
+  const sessionOptions = {
     currentSessionId: sessionId,
     now: deps.now(),
     maxSessions: deps.options.maxSessions ?? DEFAULT_MAX_SESSIONS,
-    hiddenSessionIds: hiddenIds,
+  };
+  const childActivityStatuses = prepareSessionChildActivityStatuses(
+    sessions,
+    sessionStatuses,
+    {
+      ...sessionOptions,
+      ...(reloadGeneration === undefined ? {} : { reloadGeneration }),
+    },
+    deps.ensureHistory,
+    (id) => agentRowsForSession(deps, id),
+  );
+  const rows = buildSessionEntries(sessions, sessionStatuses, {
+    ...sessionOptions,
     childActivityStatuses,
   });
   const error = deps.sessionError();
@@ -38,22 +50,57 @@ export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Ele
       ) : (
         renderSessionRows(rows, theme, {
           openSession: (id) => deps.api.route.navigate("session", { sessionID: id }),
-          hideSession: deps.hideSession,
           confirmDeleteSession: deps.confirmDeleteSession,
         })
       )}
-      {renderHiddenSessionsFooter(hiddenIds.size, theme, deps.showHiddenSessions)}
     </box>
   ) as unknown as JSX.Element;
 }
 
-function childActivityStatusesForCurrentSession(
-  deps: PanelDeps,
-  sessionId: string,
+type SessionActivityOptions = Omit<BuildSessionOptions, "childActivityStatuses">;
+
+type EnsureHistory = (sessionId: string, visibleRefreshGeneration?: number) => void;
+
+type SessionActivityOptionsWithRefresh = SessionActivityOptions & {
+  readonly reloadGeneration?: number;
+};
+
+export function prepareSessionChildActivityStatuses(
+  sessions: ReadonlyArray<Session>,
+  statuses: ReadonlyMap<string, SessionStatus>,
+  options: SessionActivityOptionsWithRefresh,
+  ensureHistory: EnsureHistory,
+  rowsForSession: (sessionId: string) => ReadonlyArray<AgentEntry>,
 ): ReadonlyMap<string, SessionStatus["type"]> | undefined {
-  const status = childActivityStatus(agentRowsForSession(deps, sessionId));
-  if (status === undefined) return undefined;
-  return new Map([[sessionId, status]]);
+  const targetIds = sessionActivityTargetIds(sessions, statuses, options);
+  for (const id of targetIds) ensureHistory(id, options.reloadGeneration);
+  return sessionChildActivityStatuses(
+    sessions.filter((session) => targetIds.has(session.id)),
+    options.currentSessionId,
+    rowsForSession,
+  );
+}
+
+export function sessionChildActivityStatuses(
+  sessions: ReadonlyArray<Session>,
+  currentSessionId: string,
+  rowsForSession: (sessionId: string) => ReadonlyArray<AgentEntry>,
+): ReadonlyMap<string, SessionStatus["type"]> | undefined {
+  const statuses = new Map<string, SessionStatus["type"]>();
+  for (const session of sessions) {
+    if (session.parentID !== undefined && session.id !== currentSessionId) continue;
+    const status = childActivityStatus(rowsForSession(session.id));
+    if (status !== undefined) statuses.set(session.id, status);
+  }
+  return statuses.size === 0 ? undefined : statuses;
+}
+
+function sessionActivityTargetIds(
+  sessions: ReadonlyArray<Session>,
+  statuses: ReadonlyMap<string, SessionStatus>,
+  options: SessionActivityOptions,
+): ReadonlySet<string> {
+  return new Set(buildSessionEntries(sessions, statuses, options).map((row) => row.sessionID));
 }
 
 function childActivityStatus(rows: ReadonlyArray<AgentEntry>): SessionStatus["type"] | undefined {
