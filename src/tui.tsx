@@ -5,12 +5,12 @@ import { createSignal, type JSX } from "solid-js";
 
 import { resolveChildIdFrom } from "./agents";
 import { createCoalescer } from "./coalesce";
-import { capEnvelopes, capSessions, type Envelope, mergeEnvelopes, sanitizeEnvelope } from "./history";
 import { createSessionActions } from "./session-actions";
 import { createGlobalSessionRefreshClient, createSessionRefresher } from "./session-refresh";
 import { type ImmediateSessionEvent, sessionStatusesAfterEvent } from "./session-status-events";
 import { currentSessionProjectPath } from "./sessions";
 import { DEFAULT_SIDEBAR_TAB, SIDEBAR_CONTENT_ORDER, shouldRefreshSessionsOnTabSelect } from "./tabs";
+import { createHistoryLoader } from "./tui-history";
 import {
   canFetchChildren,
   type LiveTailUpdate,
@@ -34,9 +34,6 @@ interface SlotProps {
 
 type ToolPart = Extract<Part, { type: "tool" }>;
 
-const HISTORY_FETCH_LIMIT = 150;
-const MAX_HISTORY_MESSAGES = 600;
-const MAX_HISTORY_SESSIONS = 32;
 const TICK_MS = 60_000;
 const DATA_THROTTLE_MS = 500;
 
@@ -49,65 +46,39 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   const [now, setNow] = createSignal(Date.now());
   const [dataRev, setDataRev] = createSignal(0);
   const [activeTab, setActiveTab] = createSignal<SidebarTab>(DEFAULT_SIDEBAR_TAB);
-  const [history, setHistory] = createSignal<ReadonlyMap<string, ReadonlyArray<Envelope>>>(new Map());
   const [sessions, setSessions] = createSignal<ReadonlyArray<Session>>([]);
   const [sessionStatuses, setSessionStatuses] = createSignal<ReadonlyMap<string, SessionStatus>>(new Map());
   const [sessionError, setSessionError] = createSignal<string | undefined>();
-  const inFlight = new Set<string>();
-  const failed = new Set<string>();
   let disposed = false;
 
-  const liveEnvelopes = (sid: string): Envelope[] =>
-    api.state.session.messages(sid).map((info) => ({ info, parts: api.state.part(info.id) }));
-  const boundedHistory = (merged: Envelope[]): Envelope[] =>
-    capEnvelopes(merged.map(sanitizeEnvelope), MAX_HISTORY_MESSAGES);
-  const partsByMsg = (merged: ReadonlyArray<Envelope>): Map<string, ReadonlyArray<Part>> =>
-    new Map(merged.map((entry) => [entry.info.id, entry.parts] as const));
-  const flattenParts = (merged: ReadonlyArray<Envelope>): Part[] => merged.flatMap((entry) => [...entry.parts]);
-
-  const absorbLiveTail = (sid: string): void => {
-    setHistory((prev) => {
-      const cached = prev.get(sid);
-      if (cached === undefined) return prev;
-      return new Map(prev).set(sid, boundedHistory(mergeEnvelopes(cached, liveEnvelopes(sid))));
-    });
-  };
-
-  const ensureHistory = (sid: string): void => {
-    if (disposed || inFlight.has(sid) || failed.has(sid) || history().has(sid)) return;
-    inFlight.add(sid);
-    api.client.session
-      .messages({ sessionID: sid, limit: HISTORY_FETCH_LIMIT })
-      .then((res) => {
-        if (disposed) return;
-        const data = res.data;
-        if (!data) {
-          failed.add(sid);
-          return;
-        }
-        const full: Envelope[] = data.map((item) => ({ info: item.info, parts: item.parts }));
-        setHistory((prev) =>
-          capSessions(
-            new Map(prev).set(sid, boundedHistory(mergeEnvelopes(full, liveEnvelopes(sid)))),
-            MAX_HISTORY_SESSIONS,
-          ),
-        );
-        setDataRev((value) => value + 1);
-      })
-      .catch((error: unknown) => {
-        failed.add(sid);
-        setSessionError(error instanceof Error ? error.message : "Failed to load session history");
-      })
-      .finally(() => inFlight.delete(sid));
-  };
+  const histories = createHistoryLoader({
+    dataRev,
+    fetchHistory: (sid, limit) =>
+      api.client.session.messages({ sessionID: sid, limit }).then((res) =>
+        res.data?.map((item) => ({
+          info: item.info,
+          parts: item.parts,
+        })),
+      ),
+    isDisposed: () => disposed,
+    liveEnvelopes: (sid) => api.state.session.messages(sid).map((info) => ({ info, parts: api.state.part(info.id) })),
+    setDataRev,
+    setSessionError,
+  });
 
   const refreshSessions = createSessionRefresher(createGlobalSessionRefreshClient(api.client.session), {
     isDisposed: () => disposed,
     now: Date.now,
+    onRefreshSuccess: histories.onRefreshSuccess,
     setError: setSessionError,
     setSessions,
     setStatuses: setSessionStatuses,
   });
+
+  const refreshVisibleSessionHistories = (): void => {
+    histories.requestVisibleHistoryRefresh();
+    refreshSessions(true);
+  };
 
   const [children, setChildren] = createSignal<ReadonlyMap<string, ReadonlyArray<Session>>>(new Map());
   const [childrenVersion, setChildrenVersion] = createSignal(0);
@@ -141,19 +112,9 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
       return resolveChildIdFrom(kids, desc, "time" in part.state ? part.state.time.start : 0);
     };
 
-  let mergedKey = "";
-  let mergedCache: Envelope[] = [];
-  const mergedFor = (sid: string): Envelope[] => {
-    const key = `${sid}:${dataRev()}:${history().has(sid) ? "h" : "l"}`;
-    if (key === mergedKey) return mergedCache;
-    mergedCache = mergeEnvelopes(history().get(sid) ?? [], liveEnvelopes(sid));
-    mergedKey = key;
-    return mergedCache;
-  };
-
   const dataCoalescer = createCoalescer<LiveTailUpdate>(DATA_THROTTLE_MS, (updates) => {
-    const plan = liveTailFlushPlan(updates, history().keys());
-    for (const sid of plan.sessionIds) absorbLiveTail(sid);
+    const plan = liveTailFlushPlan(updates, histories.history().keys());
+    for (const sid of plan.sessionIds) histories.absorbLiveTail(sid);
     if (plan.refreshSessions) refreshSessions(true);
     setDataRev((value) => value + 1);
   });
@@ -168,12 +129,19 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   };
   const selectTab = (tab: SidebarTab): void => {
     setActiveTab(tab);
-    if (shouldRefreshSessionsOnTabSelect(tab)) refreshSessions(true);
+    if (shouldRefreshSessionsOnTabSelect(tab)) refreshVisibleSessionHistories();
   };
   const sessionActions = createSessionActions({
     api,
-    signals: { sessions, setSessions, setSessionStatuses, setSessionError, setHistory, setChildren },
-    caches: { inFlight, failed, childrenInFlight, childrenRetryAt },
+    signals: {
+      sessions,
+      setSessions,
+      setSessionStatuses,
+      setSessionError,
+      setHistory: histories.setHistory,
+      setChildren,
+    },
+    caches: { inFlight: histories.inFlight, failed: histories.failed, childrenInFlight, childrenRetryAt },
     isDisposed: () => disposed,
     refreshSessions,
   });
@@ -185,7 +153,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     api.event.on("message.updated", onData),
     api.event.on("message.part.updated", onPartData),
   ];
-  refreshSessions(true);
+  refreshVisibleSessionHistories();
 
   api.lifecycle.onDispose(() => {
     disposed = true;
@@ -198,21 +166,19 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     api,
     options,
     now,
-    mergedFor,
-    partsByMsg,
-    flattenParts,
-    ensureHistory,
+    mergedFor: histories.mergedFor,
+    partsByMsg: histories.partsByMsg,
+    flattenParts: histories.flattenParts,
+    ensureHistory: histories.ensureHistory,
     ensureChildren,
     makeResolveChildId,
     childrenVersion,
+    visibleHistoryRefreshGeneration: histories.visibleHistoryRefreshGeneration,
     refreshSessions,
     sessions,
     sessionStatuses,
     sessionError,
-    hiddenSessionIds: sessionActions.hiddenSessionIds,
-    hideSession: sessionActions.hideSession,
     confirmDeleteSession: sessionActions.confirmDeleteSession,
-    showHiddenSessions: sessionActions.showHiddenSessions,
   });
   api.slots.register({
     order: 55,
