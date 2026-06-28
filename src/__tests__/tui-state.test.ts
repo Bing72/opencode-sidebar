@@ -10,6 +10,7 @@ import {
   SESSION_REFRESH_EVENTS,
   SESSION_REFRESH_THROTTLE_MS,
   sessionIdsForLiveTail,
+  shouldLoadHistory,
 } from "../tui-state";
 
 describe("tui state helpers", () => {
@@ -66,5 +67,102 @@ describe("tui state helpers", () => {
       sessionIds: ["s1", "s2"],
       refreshSessions: true,
     });
+  });
+
+  it("T-TUI-08 loads missing cached history", () => {
+    expect(
+      shouldLoadHistory({
+        sessionId: "s1",
+        history: new Map<string, readonly []>(),
+        inFlight: new Set<string>(),
+        failed: new Set<string>(),
+        disposed: false,
+        requestedReloadGenerations: new Map<string, number>(),
+      }),
+    ).toBe(true);
+  });
+
+  it("T-TUI-09 keeps cached history idle without a reload generation", () => {
+    const history: ReadonlyMap<string, readonly []> = new Map([["s1", []]]);
+
+    expect(
+      shouldLoadHistory({
+        sessionId: "s1",
+        history,
+        inFlight: new Set<string>(),
+        failed: new Set<string>(),
+        disposed: false,
+        requestedReloadGenerations: new Map<string, number>(),
+      }),
+    ).toBe(false);
+  });
+
+  it("T-TUI-10 reloads cached history for a new visible generation", () => {
+    const history: ReadonlyMap<string, readonly []> = new Map([["s1", []]]);
+    const requestedReloadGenerations = new Map([["s1", 1]]);
+
+    expect(
+      shouldLoadHistory({
+        sessionId: "s1",
+        history,
+        inFlight: new Set<string>(),
+        failed: new Set<string>(),
+        disposed: false,
+        visibleRefreshGeneration: 2,
+        requestedReloadGenerations,
+      }),
+    ).toBe(true);
+  });
+
+  it("T-TUI-11 skips cached history already requested for the visible generation", () => {
+    const history: ReadonlyMap<string, readonly []> = new Map([["s1", []]]);
+    const requestedReloadGenerations = new Map([["s1", 2]]);
+
+    expect(
+      shouldLoadHistory({
+        sessionId: "s1",
+        history,
+        inFlight: new Set<string>(),
+        failed: new Set<string>(),
+        disposed: false,
+        visibleRefreshGeneration: 2,
+        requestedReloadGenerations,
+      }),
+    ).toBe(false);
+  });
+
+  it("T-TUI-12 blocks history loads while guarded", () => {
+    const history = new Map<string, readonly []>();
+
+    expect(
+      shouldLoadHistory({
+        sessionId: "s1",
+        history,
+        inFlight: new Set(["s1"]),
+        failed: new Set<string>(),
+        disposed: false,
+        requestedReloadGenerations: new Map<string, number>(),
+      }),
+    ).toBe(false);
+    expect(
+      shouldLoadHistory({
+        sessionId: "s1",
+        history,
+        inFlight: new Set<string>(),
+        failed: new Set(["s1"]),
+        disposed: false,
+        requestedReloadGenerations: new Map<string, number>(),
+      }),
+    ).toBe(false);
+    expect(
+      shouldLoadHistory({
+        sessionId: "s1",
+        history,
+        inFlight: new Set<string>(),
+        failed: new Set<string>(),
+        disposed: true,
+        requestedReloadGenerations: new Map<string, number>(),
+      }),
+    ).toBe(false);
   });
 });

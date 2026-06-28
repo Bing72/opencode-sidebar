@@ -12,6 +12,16 @@ export interface LiveTailFlushPlan {
   readonly refreshSessions: boolean;
 }
 
+export interface ShouldLoadHistoryInput {
+  readonly sessionId: string;
+  readonly history: ReadonlyMap<string, unknown>;
+  readonly inFlight: ReadonlySet<string>;
+  readonly failed: ReadonlySet<string>;
+  readonly disposed: boolean;
+  readonly visibleRefreshGeneration?: number;
+  readonly requestedReloadGenerations: ReadonlyMap<string, number>;
+}
+
 export function sessionIdsForLiveTail(
   eventSessionIds: ReadonlyArray<string | undefined>,
   cachedSessionIds: Iterable<string>,
@@ -36,6 +46,14 @@ export function liveTailFlushPlan(
     ),
     refreshSessions: updates.some((update) => update.refreshSessions),
   };
+}
+
+export function shouldLoadHistory(input: ShouldLoadHistoryInput): boolean {
+  if (input.disposed || input.inFlight.has(input.sessionId) || input.failed.has(input.sessionId)) return false;
+  if (!input.history.has(input.sessionId)) return true;
+  const generation = input.visibleRefreshGeneration;
+  if (generation === undefined) return false;
+  return input.requestedReloadGenerations.get(input.sessionId) !== generation;
 }
 
 export function canFetchChildren(sessionId: string, retryAt: ReadonlyMap<string, number>, now: number): boolean {
