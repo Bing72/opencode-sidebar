@@ -54,7 +54,7 @@ export interface SessionEntry {
   readonly glyph: string;
   readonly current: boolean;
   readonly running: boolean;
-  readonly hideable: boolean;
+  readonly deletable: boolean;
   readonly updatedMs: number;
   readonly detail: string;
 }

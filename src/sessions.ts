@@ -26,7 +26,6 @@ export interface BuildSessionOptions {
   readonly currentSessionId: string;
   readonly now: number;
   readonly maxSessions?: number;
-  readonly hiddenSessionIds?: ReadonlySet<string>;
   readonly childActivityStatuses?: ReadonlyMap<string, SessionStatusType> | undefined;
 }
 
@@ -42,7 +41,6 @@ export function buildSessionEntries(
     const current = session.id === options.currentSessionId;
     if (session.parentID !== undefined && !current) continue;
     const status = effectiveSessionStatus(session.id, statuses, childStatuses, options.childActivityStatuses);
-    if (!current && options.hiddenSessionIds?.has(session.id)) continue;
     if (rows.length >= limit) {
       if (!current) continue;
       rows.pop();
@@ -57,7 +55,7 @@ export function buildSessionEntries(
       glyph: current ? SESSION_GLYPHS.current : SESSION_GLYPHS[status],
       current,
       running,
-      hideable: !current,
+      deletable: !current,
       updatedMs,
       detail: `${session.title}\n${status}\nUpdated ${formatSessionAge(updatedMs)} ago`,
     });

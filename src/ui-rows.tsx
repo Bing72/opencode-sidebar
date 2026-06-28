@@ -27,7 +27,6 @@ interface SessionActionMouseEvent {
 
 export interface SessionRowActions {
   readonly openSession: (sessionId: string) => void;
-  readonly hideSession?: (sessionId: string) => void;
   readonly confirmDeleteSession?: (sessionId: string) => void;
 }
 
@@ -59,6 +58,8 @@ export interface RenderTabsArgs {
 
 const SESSION_GLYPH_TITLE_SEPARATOR = " ";
 const SESSION_STATUS_REASON_SEPARATOR = " · ";
+export const SESSION_DELETE_ACTION_GLYPH = "×";
+export const SESSION_DELETE_ACTION_COLOR = "#EF4444";
 
 export function sessionGlyphTitleParts(entry: Pick<SessionEntry, "glyph" | "title">): SessionGlyphTitleParts {
   return {
@@ -109,30 +110,17 @@ export function sessionGlyphColor<Color>(
   return entry.current ? currentSessionColor(theme) : sessionStatusColor(entry.status, theme);
 }
 
-export function sessionHideActionColor<Color>(theme: { readonly textMuted: Color }): Color {
-  return theme.textMuted;
-}
-
-export function sessionDeleteActionColor<Color>(theme: { readonly error: Color }): Color {
-  return theme.error;
-}
-
-export function handleSessionHideMouseUp(
-  event: SessionActionMouseEvent,
-  entry: Pick<SessionEntry, "sessionID" | "hideable">,
-  hideSession: (sessionId: string) => void,
-): void {
-  event.stopPropagation();
-  if (entry.hideable) hideSession(entry.sessionID);
+export function sessionDeleteActionColor(): typeof SESSION_DELETE_ACTION_COLOR {
+  return SESSION_DELETE_ACTION_COLOR;
 }
 
 export function handleSessionDeleteMouseUp(
   event: SessionActionMouseEvent,
-  entry: Pick<SessionEntry, "sessionID" | "hideable">,
+  entry: Pick<SessionEntry, "sessionID" | "deletable">,
   confirmDeleteSession: (sessionId: string) => void,
 ): void {
   event.stopPropagation();
-  if (entry.hideable) confirmDeleteSession(entry.sessionID);
+  if (entry.deletable) confirmDeleteSession(entry.sessionID);
 }
 
 export function renderTabs(args: RenderTabsArgs): JSX.Element {
@@ -205,7 +193,6 @@ export function renderSessionRows(
   actions: SessionRowActions,
 ): JSX.Element[] {
   return rows.map((entry) => {
-    const hideSession = actions.hideSession;
     const confirmDeleteSession = actions.confirmDeleteSession;
     const titleParts = sessionGlyphTitleParts(entry);
     const statusParts = sessionStatusReasonParts(entry);
@@ -231,20 +218,12 @@ export function renderSessionRows(
           </box>
           <box flexDirection="row" flexShrink={0}>
             <text fg={theme.textMuted}>{` ${formatSessionAge(entry.updatedMs)} ago`}</text>
-            {entry.hideable && hideSession !== undefined ? (
+            {entry.deletable && confirmDeleteSession !== undefined ? (
               <text
-                fg={sessionHideActionColor(theme)}
-                onMouseUp={(event) => handleSessionHideMouseUp(event, entry, hideSession)}
-              >
-                {" h"}
-              </text>
-            ) : null}
-            {entry.hideable && confirmDeleteSession !== undefined ? (
-              <text
-                fg={sessionDeleteActionColor(theme)}
+                fg={sessionDeleteActionColor()}
                 onMouseUp={(event) => handleSessionDeleteMouseUp(event, entry, confirmDeleteSession)}
               >
-                {" ×"}
+                {` ${SESSION_DELETE_ACTION_GLYPH}`}
               </text>
             ) : null}
           </box>

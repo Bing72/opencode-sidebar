@@ -134,36 +134,7 @@ describe("buildSessionEntries", () => {
     expect(row.detail).not.toContain("/home/bing72/opencode-plugin");
   });
 
-  it("T-SE-07 filters hidden sessions before applying the visible row limit", () => {
-    const rows = buildSessionEntries(
-      [session("hidden-1", "Hidden work", 50_000), session("visible-1", "Visible work", 40_000)],
-      new Map<string, SessionStatus>(),
-      {
-        currentSessionId: "visible-1",
-        now: 60_000,
-        maxSessions: 1,
-        hiddenSessionIds: new Set(["hidden-1"]),
-      },
-    );
-
-    expect(rows.map((row) => row.sessionID)).toEqual(["visible-1"]);
-  });
-
-  it("T-SE-08 keeps the current session visible when hidden ids contain it", () => {
-    const rows = buildSessionEntries(
-      [session("current", "Current work", 50_000), session("other", "Other work", 40_000)],
-      new Map<string, SessionStatus>(),
-      {
-        currentSessionId: "current",
-        now: 60_000,
-        hiddenSessionIds: new Set(["current", "other"]),
-      },
-    );
-
-    expect(rows.map((row) => row.sessionID)).toEqual(["current"]);
-  });
-
-  it("T-SE-09 marks only non-current rows as hideable", () => {
+  it("T-SE-09 marks only non-current rows as row-action eligible", () => {
     const rows = buildSessionEntries(
       [session("current", "Current work", 50_000), session("other", "Other work", 40_000)],
       new Map<string, SessionStatus>(),
@@ -173,7 +144,7 @@ describe("buildSessionEntries", () => {
       },
     );
 
-    expect(rows.map((row) => [row.sessionID, row.hideable])).toEqual([
+    expect(rows.map((row) => [row.sessionID, row.deletable])).toEqual([
       ["current", false],
       ["other", true],
     ]);
@@ -191,10 +162,10 @@ describe("buildSessionEntries", () => {
     );
 
     expect(rows.map((row) => row.sessionID)).toEqual(["current"]);
-    expect(rows[0]).toMatchObject({ current: true, hideable: false });
+    expect(rows[0]).toMatchObject({ current: true, deletable: false });
   });
 
-  it("T-SE-11 marks an idle parent busy while a hidden child session is busy", () => {
+  it("T-SE-11 marks an idle parent busy while a child session is busy", () => {
     const statuses = new Map<string, SessionStatus>([
       ["parent-1", { type: "idle" }],
       ["child-1", { type: "busy" }],
@@ -256,7 +227,7 @@ describe("buildSessionEntries", () => {
       ["current", "●"],
       ["other", SESSION_GLYPHS.idle],
     ]);
-    expect(rows[0]).toMatchObject({ current: true, hideable: false });
+    expect(rows[0]).toMatchObject({ current: true, deletable: false });
   });
 
   it("T-SE-15 moves the visible current session to the first capped row", () => {
@@ -276,7 +247,7 @@ describe("buildSessionEntries", () => {
 
     expect(rows.map((row) => row.sessionID)).toEqual(["current", "recent"]);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ current: true, hideable: false });
+    expect(rows[0]).toMatchObject({ current: true, deletable: false });
   });
 
   it("T-SE-16 includes the viewed child session as the first row", () => {
@@ -295,6 +266,6 @@ describe("buildSessionEntries", () => {
     );
 
     expect(rows.map((row) => row.sessionID)).toEqual(["child", "parent"]);
-    expect(rows[0]).toMatchObject({ current: true, hideable: false });
+    expect(rows[0]).toMatchObject({ current: true, deletable: false });
   });
 });
