@@ -11,7 +11,6 @@ import type { Part, PluginOptions, Session, SessionStatus, TimelineEntry, Timeli
 import { agentRowsForSession } from "./ui-agent-rows";
 import { renderAgentRow } from "./ui-rows";
 
-export { handleHiddenSessionsFooterMouseUp, hiddenSessionsFooterLabel } from "./ui-session-footer";
 export { renderSessionsPanel } from "./ui-sessions-panel";
 
 export interface PanelDeps {
@@ -21,18 +20,16 @@ export interface PanelDeps {
   readonly mergedFor: (sessionId: string) => Envelope[];
   readonly partsByMsg: (merged: ReadonlyArray<Envelope>) => Map<string, ReadonlyArray<Part>>;
   readonly flattenParts: (merged: ReadonlyArray<Envelope>) => Part[];
-  readonly ensureHistory: (sessionId: string) => void;
+  readonly ensureHistory: (sessionId: string, visibleRefreshGeneration?: number) => void;
   readonly ensureChildren: (sessionId: string) => void;
   readonly makeResolveChildId: (sessionId: string) => (part: Extract<Part, { type: "tool" }>) => string | undefined;
   readonly childrenVersion: () => number;
+  readonly visibleHistoryRefreshGeneration: () => number | undefined;
   readonly refreshSessions: () => void;
   readonly sessions: () => ReadonlyArray<Session>;
   readonly sessionStatuses: () => ReadonlyMap<string, SessionStatus>;
   readonly sessionError: () => string | undefined;
-  readonly hiddenSessionIds: () => ReadonlySet<string>;
-  readonly hideSession: (sessionId: string) => void;
   readonly confirmDeleteSession: (sessionId: string) => void;
-  readonly showHiddenSessions: () => void;
 }
 
 const DEFAULT_MAX_ROWS = 50;
