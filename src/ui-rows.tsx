@@ -58,6 +58,7 @@ export interface RenderTabsArgs {
 
 const SESSION_GLYPH_TITLE_SEPARATOR = " ";
 const SESSION_STATUS_REASON_SEPARATOR = " · ";
+export const SESSION_BUSY_GLYPH_COLOR = "white";
 export const SESSION_DELETE_ACTION_GLYPH = "×";
 export const SESSION_DELETE_ACTION_COLOR = "#EF4444";
 
@@ -105,9 +106,25 @@ export function currentSessionColor<Color>(theme: SessionColorTheme<Color>): Col
 export function sessionGlyphColor<Color>(
   entry: Pick<SessionEntry, "current" | "status">,
   theme: SessionColorTheme<Color>,
-): Color {
-  if (entry.status === "busy") return sessionStatusColor(entry.status, theme);
-  return entry.current ? currentSessionColor(theme) : sessionStatusColor(entry.status, theme);
+): Color | typeof SESSION_BUSY_GLYPH_COLOR {
+  if (entry.current) return currentSessionColor(theme);
+  switch (entry.status) {
+    case "busy":
+      return SESSION_BUSY_GLYPH_COLOR;
+    case "retry":
+    case "idle":
+      return sessionStatusColor(entry.status, theme);
+    default:
+      return assertNever(entry.status);
+  }
+}
+
+export function sessionRowGlyph(
+  entry: Pick<SessionEntry, "current" | "glyph" | "status">,
+  busySpinnerFrame: string,
+): string {
+  if (entry.current) return entry.glyph;
+  return entry.status === "busy" ? busySpinnerFrame : entry.glyph;
 }
 
 export function sessionDeleteActionColor(): typeof SESSION_DELETE_ACTION_COLOR {

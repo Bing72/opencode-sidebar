@@ -3,11 +3,13 @@ import type { SessionEntry } from "../types";
 import {
   currentSessionColor,
   handleSessionDeleteMouseUp,
+  SESSION_BUSY_GLYPH_COLOR,
   SESSION_DELETE_ACTION_COLOR,
   SESSION_DELETE_ACTION_GLYPH,
   sessionDeleteActionColor,
   sessionGlyphColor,
   sessionGlyphTitleParts,
+  sessionRowGlyph,
   sessionStatusColor,
   sessionStatusReasonParts,
   tabHeaderProjectParts,
@@ -83,11 +85,18 @@ describe("session row helpers", () => {
     expect(tabHeaderProjectParts(undefined)).toBeUndefined();
   });
 
-  it("T-ROW-08 maps busy session glyphs to info while preserving current idle and retry colors", () => {
-    expect(sessionGlyphColor({ ...deletableEntry, status: "busy" }, theme)).toBe(theme.info);
-    expect(sessionGlyphColor({ ...deletableEntry, status: "busy", current: true }, theme)).toBe(theme.info);
+  it("T-ROW-08 prioritizes current glyph color over non-current busy spinner color", () => {
+    expect(sessionGlyphColor({ ...deletableEntry, status: "busy" }, theme)).toBe(SESSION_BUSY_GLYPH_COLOR);
+    expect(sessionGlyphColor({ ...deletableEntry, status: "busy", current: true }, theme)).toBe(theme.success);
     expect(sessionGlyphColor({ ...deletableEntry, status: "idle", current: true }, theme)).toBe(theme.success);
     expect(sessionGlyphColor({ ...deletableEntry, status: "retry" }, theme)).toBe(theme.warning);
+  });
+
+  it("T-ROW-11 renders the current busy spinner frame only for non-current busy rows", () => {
+    expect(sessionRowGlyph({ ...deletableEntry, status: "busy", glyph: "⣾" }, "⣽")).toBe("⣽");
+    expect(sessionRowGlyph({ ...deletableEntry, status: "busy", current: true, glyph: "●" }, "⣽")).toBe("●");
+    expect(sessionRowGlyph({ ...deletableEntry, status: "retry", glyph: "◷" }, "⣽")).toBe("◷");
+    expect(sessionRowGlyph({ ...deletableEntry, status: "idle", glyph: "○" }, "⣽")).toBe("○");
   });
 
   it("T-ROW-09 stops navigation propagation before requesting delete confirmation", () => {
