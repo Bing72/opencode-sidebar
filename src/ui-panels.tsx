@@ -24,6 +24,7 @@ export interface PanelDeps {
   readonly ensureChildren: (sessionId: string) => void;
   readonly makeResolveChildId: (sessionId: string) => (part: Extract<Part, { type: "tool" }>) => string | undefined;
   readonly childrenVersion: () => number;
+  readonly sessionBusySpinnerFrameIndex: () => number;
   readonly visibleHistoryRefreshGeneration: () => number | undefined;
   readonly refreshSessions: () => void;
   readonly sessions: () => ReadonlyArray<Session>;

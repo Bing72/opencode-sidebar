@@ -2,7 +2,7 @@
 
 import type { JSX } from "solid-js";
 
-import { type BuildSessionOptions, buildSessionEntries } from "./sessions";
+import { type BuildSessionOptions, buildSessionEntries, sessionBusySpinnerFrame } from "./sessions";
 import type { AgentEntry, Session, SessionStatus } from "./types";
 import { agentRowsForSession } from "./ui-agent-rows";
 import type { PanelDeps } from "./ui-panels";
@@ -16,6 +16,7 @@ export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Ele
   const sessions = deps.sessions();
   const sessionStatuses = deps.sessionStatuses();
   const reloadGeneration = deps.visibleHistoryRefreshGeneration();
+  const busySpinnerFrame = () => sessionBusySpinnerFrame(deps.sessionBusySpinnerFrameIndex());
   const sessionOptions = {
     currentSessionId: sessionId,
     now: deps.now(),
@@ -48,9 +49,14 @@ export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Ele
           <text fg={theme.textMuted}>{"No sessions"}</text>
         </box>
       ) : (
-        renderSessionRows(rows, theme, {
-          openSession: (id) => deps.api.route.navigate("session", { sessionID: id }),
-          confirmDeleteSession: deps.confirmDeleteSession,
+        renderSessionRows({
+          rows,
+          theme,
+          busySpinnerFrame,
+          actions: {
+            openSession: (id) => deps.api.route.navigate("session", { sessionID: id }),
+            confirmDeleteSession: deps.confirmDeleteSession,
+          },
         })
       )}
     </box>

@@ -56,6 +56,13 @@ export interface RenderTabsArgs {
   readonly projectPath?: string;
 }
 
+export interface RenderSessionRowsArgs {
+  readonly rows: ReadonlyArray<SessionEntry>;
+  readonly theme: TuiThemeCurrent;
+  readonly actions: SessionRowActions;
+  readonly busySpinnerFrame: () => string;
+}
+
 const SESSION_GLYPH_TITLE_SEPARATOR = " ";
 const SESSION_STATUS_REASON_SEPARATOR = " · ";
 export const SESSION_BUSY_GLYPH_COLOR = "white";
@@ -204,11 +211,8 @@ export function renderAgentRow(
   ) as unknown as JSX.Element;
 }
 
-export function renderSessionRows(
-  rows: ReadonlyArray<SessionEntry>,
-  theme: TuiThemeCurrent,
-  actions: SessionRowActions,
-): JSX.Element[] {
+export function renderSessionRows(args: RenderSessionRowsArgs): JSX.Element[] {
+  const { actions, busySpinnerFrame, rows, theme } = args;
   return rows.map((entry) => {
     const confirmDeleteSession = actions.confirmDeleteSession;
     const titleParts = sessionGlyphTitleParts(entry);
@@ -224,7 +228,7 @@ export function renderSessionRows(
         <box height={1} flexDirection="row" justifyContent="space-between">
           <box flexDirection="row" flexShrink={1} overflow="hidden" minWidth={0}>
             <text fg={sessionGlyphColor(entry, theme)} wrapMode="none" flexShrink={0}>
-              {titleParts.glyph}
+              {entry.current || entry.status !== "busy" ? titleParts.glyph : sessionRowGlyph(entry, busySpinnerFrame())}
             </text>
             <text fg={theme.text} wrapMode="none" flexShrink={0}>
               {titleParts.separator}

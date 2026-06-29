@@ -8,7 +8,7 @@ import { createCoalescer } from "./coalesce";
 import { createSessionActions } from "./session-actions";
 import { createGlobalSessionRefreshClient, createSessionRefresher } from "./session-refresh";
 import { type ImmediateSessionEvent, sessionStatusesAfterEvent } from "./session-status-events";
-import { currentSessionProjectPath } from "./sessions";
+import { currentSessionProjectPath, nextSessionBusySpinnerFrameIndex, SESSION_BUSY_SPINNER_TICK_MS } from "./sessions";
 import { DEFAULT_SIDEBAR_TAB, SIDEBAR_CONTENT_ORDER, shouldRefreshSessionsOnTabSelect } from "./tabs";
 import { createHistoryLoader } from "./tui-history";
 import {
@@ -45,6 +45,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   const options = (rawOptions as PluginOptions | undefined) ?? {};
   const [now, setNow] = createSignal(Date.now());
   const [dataRev, setDataRev] = createSignal(0);
+  const [sessionBusySpinnerFrameIndex, setSessionBusySpinnerFrameIndex] = createSignal(0);
   const [activeTab, setActiveTab] = createSignal<SidebarTab>(DEFAULT_SIDEBAR_TAB);
   const [sessions, setSessions] = createSignal<ReadonlyArray<Session>>([]);
   const [sessionStatuses, setSessionStatuses] = createSignal<ReadonlyMap<string, SessionStatus>>(new Map());
@@ -146,6 +147,10 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     refreshSessions,
   });
   const ticker = setInterval(() => setNow(Date.now()), TICK_MS);
+  const sessionBusySpinnerTicker = setInterval(
+    () => setSessionBusySpinnerFrameIndex(nextSessionBusySpinnerFrameIndex),
+    SESSION_BUSY_SPINNER_TICK_MS,
+  );
   const unsubs = [
     api.event.on("session.status", onSessionStatus),
     api.event.on("session.idle", onSessionStatus),
@@ -158,6 +163,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   api.lifecycle.onDispose(() => {
     disposed = true;
     clearInterval(ticker);
+    clearInterval(sessionBusySpinnerTicker);
     dataCoalescer.dispose();
     for (const unsub of unsubs) unsub();
   });
@@ -173,6 +179,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     ensureChildren,
     makeResolveChildId,
     childrenVersion,
+    sessionBusySpinnerFrameIndex,
     visibleHistoryRefreshGeneration: histories.visibleHistoryRefreshGeneration,
     refreshSessions,
     sessions,
