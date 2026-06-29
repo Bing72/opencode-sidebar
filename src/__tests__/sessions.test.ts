@@ -1,7 +1,15 @@
 import { homedir } from "node:os";
 import { describe, expect, it } from "vitest";
 
-import { buildSessionEntries, currentSessionProjectPath, SESSION_GLYPHS, SESSION_TITLE_COLUMNS } from "../sessions";
+import {
+  buildSessionEntries,
+  currentSessionProjectPath,
+  nextSessionBusySpinnerFrameIndex,
+  SESSION_BUSY_SPINNER_FRAMES,
+  SESSION_GLYPHS,
+  SESSION_TITLE_COLUMNS,
+  sessionBusySpinnerFrame,
+} from "../sessions";
 import { displayWidth } from "../task-metadata";
 import type { Session, SessionStatus } from "../types";
 
@@ -213,10 +221,13 @@ describe("buildSessionEntries", () => {
     expect(rows.map((row) => row.detail)).toEqual(["Hour old\nidle\nUpdated 1h ago", "Day old\nidle\nUpdated 1d ago"]);
   });
 
-  it("T-SE-14 uses a filled circle glyph for the current session marker", () => {
+  it("T-SE-14 keeps current and busy session glyphs distinct with Dot spinner wraparound", () => {
     const rows = buildSessionEntries(
-      [session("current", "Current work", 50_000), session("other", "Other work", 40_000)],
-      new Map<string, SessionStatus>(),
+      [session("current", "Current work", 50_000), session("busy", "Busy work", 40_000)],
+      new Map<string, SessionStatus>([
+        ["current", { type: "busy" }],
+        ["busy", { type: "busy" }],
+      ]),
       {
         currentSessionId: "current",
         now: 60_000,
@@ -225,9 +236,13 @@ describe("buildSessionEntries", () => {
 
     expect(rows.map((row) => [row.sessionID, row.glyph])).toEqual([
       ["current", "●"],
-      ["other", SESSION_GLYPHS.idle],
+      ["busy", "⣾"],
     ]);
     expect(rows[0]).toMatchObject({ current: true, deletable: false });
+    expect(SESSION_BUSY_SPINNER_FRAMES).toEqual(["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"]);
+    expect(SESSION_GLYPHS.busy).toBe(SESSION_BUSY_SPINNER_FRAMES[0]);
+    expect(sessionBusySpinnerFrame(SESSION_BUSY_SPINNER_FRAMES.length)).toBe(SESSION_BUSY_SPINNER_FRAMES[0]);
+    expect(nextSessionBusySpinnerFrameIndex(SESSION_BUSY_SPINNER_FRAMES.length - 1)).toBe(0);
   });
 
   it("T-SE-15 moves the visible current session to the first capped row", () => {

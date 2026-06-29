@@ -6,6 +6,8 @@ import { truncateDisplay } from "./task-metadata";
 import type { Session, SessionEntry, SessionStatus } from "./types";
 
 export const SESSION_TITLE_COLUMNS = 22;
+export const SESSION_BUSY_SPINNER_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"] as const;
+export const SESSION_BUSY_SPINNER_TICK_MS = 100;
 
 type SessionStatusType = SessionStatus["type"];
 type ActiveSessionStatus = Exclude<SessionStatusType, "idle">;
@@ -18,9 +20,24 @@ const ACTIVE_STATUS_PRIORITY: Record<ActiveSessionStatus, number> = {
 export const SESSION_GLYPHS: Record<SessionStatus["type"] | "current", string> = {
   current: "●",
   idle: "○",
-  busy: "●",
+  busy: SESSION_BUSY_SPINNER_FRAMES[0],
   retry: "◷",
 };
+
+export function sessionBusySpinnerFrame(frameIndex: number): string {
+  const frameCount = SESSION_BUSY_SPINNER_FRAMES.length;
+  const normalizedFrameIndex = ((frameIndex % frameCount) + frameCount) % frameCount;
+  return SESSION_BUSY_SPINNER_FRAMES[normalizedFrameIndex] ?? SESSION_BUSY_SPINNER_FRAMES[0];
+}
+
+export function nextSessionBusySpinnerFrameIndex(frameIndex: number): number {
+  return sessionBusySpinnerFrameIndex(frameIndex + 1);
+}
+
+function sessionBusySpinnerFrameIndex(frameIndex: number): number {
+  const frameCount = SESSION_BUSY_SPINNER_FRAMES.length;
+  return ((frameIndex % frameCount) + frameCount) % frameCount;
+}
 
 export interface BuildSessionOptions {
   readonly currentSessionId: string;
