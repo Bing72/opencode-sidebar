@@ -7,7 +7,11 @@ import { resolveChildIdFrom } from "./agents";
 import { createCoalescer } from "./coalesce";
 import { createSessionActions } from "./session-actions";
 import { createGlobalSessionRefreshClient, createSessionRefresher } from "./session-refresh";
-import { type ImmediateSessionEvent, sessionStatusesAfterEvent } from "./session-status-events";
+import {
+  type ImmediateSessionEvent,
+  idleObservedTimesAfterEvent,
+  sessionStatusesAfterEvent,
+} from "./session-status-events";
 import { currentSessionProjectPath, nextSessionBusySpinnerFrameIndex, SESSION_BUSY_SPINNER_TICK_MS } from "./sessions";
 import { DEFAULT_SIDEBAR_TAB, SIDEBAR_CONTENT_ORDER, shouldRefreshSessionsOnTabSelect } from "./tabs";
 import { createHistoryLoader } from "./tui-history";
@@ -49,6 +53,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   const [activeTab, setActiveTab] = createSignal<SidebarTab>(DEFAULT_SIDEBAR_TAB);
   const [sessions, setSessions] = createSignal<ReadonlyArray<Session>>([]);
   const [sessionStatuses, setSessionStatuses] = createSignal<ReadonlyMap<string, SessionStatus>>(new Map());
+  const [idleObservedAt, setIdleObservedAt] = createSignal<ReadonlyMap<string, number>>(new Map());
   const [sessionError, setSessionError] = createSignal<string | undefined>();
   let disposed = false;
 
@@ -125,6 +130,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     dataCoalescer.schedule({ sessionID: event?.properties?.sessionID, refreshSessions: false });
   const onSessionStatus = (event: ImmediateSessionEvent): void => {
     setSessionStatuses((prev) => sessionStatusesAfterEvent(prev, event));
+    setIdleObservedAt((prev) => idleObservedTimesAfterEvent(prev, event, Date.now()));
     setDataRev((value) => value + 1);
     onData(event);
   };
@@ -184,6 +190,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     refreshSessions,
     sessions,
     sessionStatuses,
+    idleObservedAt: (sessionId) => idleObservedAt().get(sessionId),
     sessionError,
     confirmDeleteSession: sessionActions.confirmDeleteSession,
   });

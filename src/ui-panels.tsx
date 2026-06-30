@@ -29,11 +29,24 @@ export interface PanelDeps {
   readonly refreshSessions: () => void;
   readonly sessions: () => ReadonlyArray<Session>;
   readonly sessionStatuses: () => ReadonlyMap<string, SessionStatus>;
+  readonly idleObservedAt: (sessionId: string) => number | undefined;
   readonly sessionError: () => string | undefined;
   readonly confirmDeleteSession: (sessionId: string) => void;
 }
 
 const DEFAULT_MAX_ROWS = 50;
+
+interface PromptTimerTextArgs {
+  readonly glyph: string;
+  readonly wallMs: number;
+  readonly workMs?: number;
+}
+
+export function promptTimerText(args: PromptTimerTextArgs): string {
+  const wall = `경과 ${formatLiveDuration(args.wallMs)}`;
+  if (args.workMs === undefined) return `${args.glyph} ${wall}`;
+  return `${args.glyph} ${wall} · 작업 ${formatLiveDuration(args.workMs)}`;
+}
 
 export function renderAgentsPanel(deps: PanelDeps, sessionId: string): JSX.Element {
   const rows = agentRowsForSession(deps, sessionId);
@@ -92,27 +105,26 @@ export function renderPromptTimer(deps: PanelDeps, sessionId: string): JSX.Eleme
   const merged = deps.mergedFor(sessionId);
   const status = deps.api.state.session.status(sessionId);
   const infos = merged.map((entry) => entry.info);
-  const elapsed = computeElapsed(
-    infos,
-    deps.partsByMsg(merged),
-    status,
-    displayNow(status, infos, tickNow(status, deps.now)),
-  );
-  if (!elapsed.hasData) return null;
+  const partsByMsg = deps.partsByMsg(merged);
+  const wallNow = deps.now();
+  const idleObservedAt = status?.type === "idle" ? deps.idleObservedAt(sessionId) : undefined;
+  const wallElapsed = computeElapsed(infos, partsByMsg, status, wallNow);
+  if (!wallElapsed.hasData) return null;
+  const workNow = displayNow(status, infos, wallNow, idleObservedAt);
+  const workElapsed = computeElapsed(infos, partsByMsg, status, workNow);
   const glyph = deps.options.timerGlyph ?? GLYPHS.timer;
-  if (elapsed.running) {
+  if (wallElapsed.running) {
     return (
-      <text
-        fg={deps.options.headerColor ?? deps.api.theme.current.accent}
-      >{`${glyph} ${formatLiveDuration(elapsed.ms)}`}</text>
+      <text fg={deps.options.headerColor ?? deps.api.theme.current.accent}>
+        {promptTimerText({ glyph, wallMs: wallElapsed.ms, workMs: workElapsed.ms })}
+      </text>
     );
   }
-  if (deps.options.showIdleDuration === false || elapsed.ms === 0) return null;
-  return (
-    <text
-      fg={deps.options.dimColor ?? deps.api.theme.current.textMuted}
-    >{`${glyph} ${formatLiveDuration(elapsed.ms)}`}</text>
-  );
+  const textArgs =
+    deps.options.showIdleDuration === false
+      ? { glyph, wallMs: wallElapsed.ms }
+      : { glyph, wallMs: wallElapsed.ms, workMs: workElapsed.ms };
+  return <text fg={deps.options.dimColor ?? deps.api.theme.current.textMuted}>{promptTimerText(textArgs)}</text>;
 }
 
 function renderTimelineRow(
