@@ -8,6 +8,7 @@ This is a terminal-native observability panel for opencode sessions. It should f
 
 - `accent`: host theme accent or primary; used for active tabs and live agent rows.
 - `info`: host theme info; used for busy session status text and session glyphs.
+- `sessionTitlePalette`: stable per-session rotation through host `accent`, `primary`, `success`, `info`, `warning`, and `secondary`; used only for the narrow-width bottom session title.
 - `muted`: host theme textMuted; used for clocks, durations, inactive tabs, and idle rows.
 - `success`: host theme success; used for completed work.
 - `warning`: host theme warning; used for retry/rate-limited states and todo rows.
@@ -33,6 +34,7 @@ This is a terminal-native observability panel for opencode sessions. It should f
 - `TimelinePanel`: user query timeline built from real User Arguments, click opens detail dialog.
 - `SessionTabs`: `Timeline` and `Sessions`, click switches active panel.
 - `SessionsPanel`: recent opencode sessions with status glyph, title, updated age, click navigation, and soft-red `×` delete request on non-current rows.
+- `BottomSessionTitle`: current session title in `app_bottom` only when the host sidebar is hidden at `<= 120` columns; centered, prefix-free, and hidden on wider layouts.
 
 ## 6. Interaction
 

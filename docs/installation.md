@@ -8,6 +8,8 @@ On Windows PowerShell, prefer the PowerShell commands below. Do not run the Bash
 
 - Timeline rows show only real user queries from User Arguments.
 - Sessions is the default tab. It keeps the currently viewed session at the top and uses the host theme info color for busy sessions.
+- On narrow terminals where OpenCode hides the sidebar (`<= 120` columns), the current session title is shown centered in `app_bottom` without a prefix. Wider terminals hide this bottom title and rely on the sidebar title.
+- The bottom session title uses a stable per-session rotation through the host theme palette, so the color stays fixed for the same session instead of flickering per render.
 - Use the mouse to switch Sessions/Timeline tabs. The plugin does not register a Ctrl+Tab shortcut.
 - On non-current session rows, `×` opens a final confirmation dialog before permanent deletion.
 
