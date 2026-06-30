@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { type ImmediateSessionEvent, sessionStatusesAfterEvent } from "../session-status-events";
+import {
+  type ImmediateSessionEvent,
+  idleObservedTimesAfterEvent,
+  sessionStatusesAfterEvent,
+} from "../session-status-events";
 import type { SessionStatus } from "../types";
 
 describe("session status events", () => {
@@ -34,5 +38,34 @@ describe("session status events", () => {
 
     expect(next.get("s1")).toEqual({ type: "idle" });
     expect(previous.get("s1")).toEqual({ type: "busy" });
+  });
+
+  it("T-SSE-03 records the local observation time when a session becomes idle", () => {
+    const previous = new Map<string, number>([["s2", 1_000]]);
+    const event: ImmediateSessionEvent = {
+      id: "event-3",
+      type: "session.idle",
+      properties: { sessionID: "s1" },
+    };
+
+    const next = idleObservedTimesAfterEvent(previous, event, 6_000);
+
+    expect(next.get("s1")).toBe(6_000);
+    expect(next.get("s2")).toBe(1_000);
+    expect(previous.has("s1")).toBe(false);
+  });
+
+  it("T-SSE-04 clears stale observed idle time when a session becomes busy", () => {
+    const previous = new Map<string, number>([["s1", 6_000]]);
+    const event: ImmediateSessionEvent = {
+      id: "event-4",
+      type: "session.status",
+      properties: { sessionID: "s1", status: { type: "busy" } },
+    };
+
+    const next = idleObservedTimesAfterEvent(previous, event, 9_000);
+
+    expect(next.has("s1")).toBe(false);
+    expect(previous.get("s1")).toBe(6_000);
   });
 });
