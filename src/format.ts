@@ -14,11 +14,11 @@ export function formatDuration(ms: number): string {
   if (safe < HOUR_MS) {
     const m = Math.floor(safe / MINUTE_MS);
     const s = Math.floor((safe % MINUTE_MS) / 1000);
-    return `${m}m ${s}s`;
+    return `${m}m${s}s`;
   }
   const h = Math.floor(safe / HOUR_MS);
   const m = Math.floor((safe % HOUR_MS) / MINUTE_MS);
-  return `${h}h ${m}m`;
+  return `${h}h${m}m`;
 }
 
 export function formatLiveDuration(ms: number): string {
@@ -27,7 +27,7 @@ export function formatLiveDuration(ms: number): string {
   if (safe < HOUR_MS) return `${Math.floor(safe / MINUTE_MS)}m`;
   const h = Math.floor(safe / HOUR_MS);
   const m = Math.floor((safe % HOUR_MS) / MINUTE_MS);
-  return `${h}h ${m}m`;
+  return `${h}h${m}m`;
 }
 
 export function formatSessionAge(ms: number): string {
