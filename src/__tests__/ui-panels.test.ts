@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   currentSessionBottomTitle,
+  promptTimerColumns,
   promptTimerText,
   renderAppBottomSessionTitle,
   sessionTitleColor,
@@ -125,15 +126,29 @@ describe("timeline panel rendering helpers", () => {
     expect(sessionTitleColor("s6", bottomTitleTheme)).toBe(bottomTitleTheme.primary);
   });
 
-  it("T-UI-10 labels prompt wall elapsed and agent work duration separately", () => {
-    const text = promptTimerText({ glyph: "T", wallMs: 600_000, workMs: 180_000 });
+  it("T-UI-10 selects prompt timer text variants by available columns", () => {
+    const args = { glyph: "⏱", wallMs: 600_000, workMs: 180_000 };
 
-    expect(text).toBe("T 경과 10m · 작업 3m");
+    expect(promptTimerText({ ...args, availableColumns: 18 })).toBe("⏱ 경과 10m·작업 3m");
+    expect(promptTimerText({ ...args, availableColumns: 17 })).toBe("⏱ 10m·3m");
+    expect(promptTimerText({ ...args, availableColumns: 7 })).toBe("⏱10m/3m");
+    expect(promptTimerText({ ...args, availableColumns: 6 })).toBe("⏱10m");
   });
 
-  it("T-UI-11 can show prompt wall elapsed without idle work duration", () => {
-    const text = promptTimerText({ glyph: "T", wallMs: 600_000 });
+  it("T-UI-11 keeps wall elapsed visible when work duration is hidden", () => {
+    const args = { glyph: "⏱", wallMs: 600_000 };
 
-    expect(text).toBe("T 경과 10m");
+    expect(promptTimerText({ ...args, availableColumns: 12 })).toBe("⏱ 경과 10m");
+    expect(promptTimerText({ ...args, availableColumns: 7 })).toBe("⏱ 10m");
+    expect(promptTimerText({ ...args, availableColumns: 3 })).toBe("⏱10m");
+  });
+
+  it("T-UI-12 reserves prompt input room when choosing prompt timer columns", () => {
+    const args = { glyph: "⏱", wallMs: 600_000, workMs: 180_000 };
+
+    expect(promptTimerText({ ...args, availableColumns: promptTimerColumns(80) })).toBe("⏱ 경과 10m·작업 3m");
+    expect(promptTimerText({ ...args, availableColumns: promptTimerColumns(60) })).toBe("⏱ 10m·3m");
+    expect(promptTimerText({ ...args, availableColumns: promptTimerColumns(48) })).toBe("⏱10m/3m");
+    expect(promptTimerText({ ...args, availableColumns: promptTimerColumns(36) })).toBe("⏱10m");
   });
 });

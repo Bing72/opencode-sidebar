@@ -6,6 +6,7 @@ import type { JSX } from "solid-js";
 import { computeElapsed, displayNow, tickNow } from "./elapsed";
 import { formatClock, formatLiveDuration, rowDurationText } from "./format";
 import type { Envelope } from "./history";
+import { displayWidth } from "./task-metadata";
 import { buildTimeline, GLYPHS } from "./timeline";
 import type { Part, PluginOptions, Session, SessionStatus, TimelineEntry, TimelineKind } from "./types";
 import { agentRowsForSession } from "./ui-agent-rows";
@@ -18,6 +19,7 @@ export interface PanelDeps {
   readonly api: TuiPluginApi;
   readonly options: PluginOptions;
   readonly now: () => number;
+  readonly width: () => number;
   readonly mergedFor: (sessionId: string) => Envelope[];
   readonly partsByMsg: (merged: ReadonlyArray<Envelope>) => Map<string, ReadonlyArray<Part>>;
   readonly flattenParts: (merged: ReadonlyArray<Envelope>) => Part[];
@@ -36,17 +38,40 @@ export interface PanelDeps {
 }
 
 const DEFAULT_MAX_ROWS = 50;
+const TIMER_FULL_COLUMNS = 20;
+const TIMER_COMPACT_COLUMNS = 12;
+const TIMER_TINY_COLUMNS = 7;
+const TIMER_MINIMAL_COLUMNS = 6;
 
 interface PromptTimerTextArgs {
   readonly glyph: string;
   readonly wallMs: number;
   readonly workMs?: number;
+  readonly availableColumns: number;
 }
 
 export function promptTimerText(args: PromptTimerTextArgs): string {
-  const wall = `경과 ${formatLiveDuration(args.wallMs)}`;
-  if (args.workMs === undefined) return `${args.glyph} ${wall}`;
-  return `${args.glyph} ${wall} · 작업 ${formatLiveDuration(args.workMs)}`;
+  const wallDuration = formatLiveDuration(args.wallMs);
+  const minimal = `${args.glyph}${wallDuration}`;
+  if (args.workMs === undefined) {
+    const variants = [`${args.glyph} 경과 ${wallDuration}`, `${args.glyph} ${wallDuration}`, minimal];
+    return variants.find((variant) => displayWidth(variant) <= args.availableColumns) ?? minimal;
+  }
+  const workDuration = formatLiveDuration(args.workMs);
+  const variants = [
+    `${args.glyph} 경과 ${wallDuration}·작업 ${workDuration}`,
+    `${args.glyph} ${wallDuration}·${workDuration}`,
+    `${args.glyph}${wallDuration}/${workDuration}`,
+    minimal,
+  ];
+  return variants.find((variant) => displayWidth(variant) <= args.availableColumns) ?? minimal;
+}
+
+export function promptTimerColumns(viewColumns: number): number {
+  if (viewColumns >= 72) return TIMER_FULL_COLUMNS;
+  if (viewColumns >= 56) return TIMER_COMPACT_COLUMNS;
+  if (viewColumns >= 40) return TIMER_TINY_COLUMNS;
+  return TIMER_MINIMAL_COLUMNS;
 }
 
 export function renderAgentsPanel(deps: PanelDeps, sessionId: string): JSX.Element {
@@ -114,18 +139,23 @@ export function renderPromptTimer(deps: PanelDeps, sessionId: string): JSX.Eleme
   const workNow = displayNow(status, infos, wallNow, idleObservedAt);
   const workElapsed = computeElapsed(infos, partsByMsg, status, workNow);
   const glyph = deps.options.timerGlyph ?? GLYPHS.timer;
+  const availableColumns = promptTimerColumns(deps.width());
   if (wallElapsed.running) {
     return (
-      <text fg={deps.options.headerColor ?? deps.api.theme.current.accent}>
-        {promptTimerText({ glyph, wallMs: wallElapsed.ms, workMs: workElapsed.ms })}
+      <text fg={deps.options.headerColor ?? deps.api.theme.current.accent} wrapMode="none" flexShrink={0}>
+        {promptTimerText({ glyph, wallMs: wallElapsed.ms, workMs: workElapsed.ms, availableColumns })}
       </text>
     );
   }
   const textArgs =
     deps.options.showIdleDuration === false
-      ? { glyph, wallMs: wallElapsed.ms }
-      : { glyph, wallMs: wallElapsed.ms, workMs: workElapsed.ms };
-  return <text fg={deps.options.dimColor ?? deps.api.theme.current.textMuted}>{promptTimerText(textArgs)}</text>;
+      ? { glyph, wallMs: wallElapsed.ms, availableColumns }
+      : { glyph, wallMs: wallElapsed.ms, workMs: workElapsed.ms, availableColumns };
+  return (
+    <text fg={deps.options.dimColor ?? deps.api.theme.current.textMuted} wrapMode="none" flexShrink={0}>
+      {promptTimerText(textArgs)}
+    </text>
+  );
 }
 
 function renderTimelineRow(

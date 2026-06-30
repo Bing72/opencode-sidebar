@@ -182,6 +182,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     api,
     options,
     now,
+    width: rendererWidth.current,
     mergedFor: histories.mergedFor,
     partsByMsg: histories.partsByMsg,
     flattenParts: histories.flattenParts,
