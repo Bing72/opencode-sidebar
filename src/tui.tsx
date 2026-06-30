@@ -15,6 +15,7 @@ import {
 import { currentSessionProjectPath, nextSessionBusySpinnerFrameIndex, SESSION_BUSY_SPINNER_TICK_MS } from "./sessions";
 import { DEFAULT_SIDEBAR_TAB, SIDEBAR_CONTENT_ORDER, shouldRefreshSessionsOnTabSelect } from "./tabs";
 import { createHistoryLoader } from "./tui-history";
+import { createRendererWidthTracker } from "./tui-renderer-width";
 import {
   canFetchChildren,
   type LiveTailUpdate,
@@ -26,6 +27,7 @@ import type { Part, PluginOptions, Session, SessionStatus, SidebarTab } from "./
 import {
   type PanelDeps,
   renderAgentsPanel,
+  renderAppBottomSessionTitle,
   renderPromptTimer,
   renderSessionsPanel,
   renderTimelinePanel,
@@ -49,6 +51,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   const options = (rawOptions as PluginOptions | undefined) ?? {};
   const [now, setNow] = createSignal(Date.now());
   const [dataRev, setDataRev] = createSignal(0);
+  const rendererWidth = createRendererWidthTracker(api.renderer);
   const [sessionBusySpinnerFrameIndex, setSessionBusySpinnerFrameIndex] = createSignal(0);
   const [activeTab, setActiveTab] = createSignal<SidebarTab>(DEFAULT_SIDEBAR_TAB);
   const [sessions, setSessions] = createSignal<ReadonlyArray<Session>>([]);
@@ -172,6 +175,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     clearInterval(sessionBusySpinnerTicker);
     dataCoalescer.dispose();
     for (const unsub of unsubs) unsub();
+    rendererWidth.dispose();
   });
 
   const panelDeps = (): PanelDeps => ({
@@ -197,6 +201,15 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   api.slots.register({
     order: 55,
     slots: {
+      app_bottom(_ctx: TuiSlotContext) {
+        dataRev();
+        return renderAppBottomSessionTitle({
+          route: api.route.current,
+          getSession: (sessionId) => api.state.session.get(sessionId),
+          theme: api.theme.current,
+          width: rendererWidth.current(),
+        });
+      },
       session_prompt_right(_ctx: TuiSlotContext, props: SlotProps) {
         dataRev();
         return renderPromptTimer(panelDeps(), props.session_id);
