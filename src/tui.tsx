@@ -246,7 +246,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
 };
 
 const plugin: TuiPluginModule & { readonly id: string } = {
-  id: "opencode-session-timeline",
+  id: "opencode-sidebar",
   tui,
 };
 

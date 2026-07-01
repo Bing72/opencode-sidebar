@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "opencode-session-timeline",
+      "name": "opencode-sidebar",
       "dependencies": {
         "@opencode-ai/plugin": "^1.17.9",
         "@opencode-ai/sdk": "^1.17.9",

@@ -1,5 +1,5 @@
 {
-  "name": "opencode-session-timeline",
+  "name": "opencode-sidebar",
   "version": "0.1.0",
   "description": "OpenCode TUI plugin with timeline and session list tabs",
   "type": "module",
