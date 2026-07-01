@@ -1,4 +1,4 @@
-# opencode-session-timeline
+# opencode-sidebar
 
 Local OpenCode TUI plugin based on `coin-seeker/opencode-timeline`, with an added Sessions tab beside the Timeline panel.
 
@@ -15,7 +15,7 @@ Local OpenCode TUI plugin based on `coin-seeker/opencode-timeline`, with an adde
 Paste below into your OpenCode agent.
 
 ```text
-Install and configure opencode-session-timeline by following the instructions here:
+Install and configure opencode-sidebar by following the instructions here:
 https://raw.githubusercontent.com/Bing72/opencode-sidebar/refs/heads/main/docs/installation.md
 ```
 
@@ -38,7 +38,7 @@ For local development, `~/.config/opencode/tui.json` should point to this checko
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
     "oh-my-openagent@latest",
-    ["/home/bing72/opencode-plugin/src/tui.tsx", { "enabled": true }]
+    ["/home/bing72/.config/opencode/plugins/opencode-sidebar/src/tui.tsx", { "enabled": true }]
   ]
 }
 ```

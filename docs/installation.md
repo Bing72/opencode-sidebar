@@ -1,4 +1,4 @@
-# opencode-session-timeline installation
+# opencode-sidebar installation
 
 These instructions are for an OpenCode agent. Install the plugin from GitHub, then register its local TUI entry.
 
@@ -15,14 +15,14 @@ On Windows PowerShell, prefer the PowerShell commands below. Do not run the Bash
 
 ## Agent task
 
-Install and configure `opencode-session-timeline` for the current user.
+Install and configure `opencode-sidebar` for the current user.
 
-1. Clone or update the repository at `~/.config/opencode/plugins/opencode-session-timeline`.
+1. Clone or update the repository at `~/.config/opencode/plugins/opencode-sidebar`.
 2. Install dependencies in that plugin directory. Use `npm install --prefix <plugin-dir>` on Windows PowerShell; `bun install` is optional on platforms where Bun is stable.
 3. Update `~/.config/opencode/tui.json` so the `plugin` array contains this entry, using the user's absolute home path:
 
 ```json
-["/home/<user>/.config/opencode/plugins/opencode-session-timeline/src/tui.tsx", { "enabled": true }]
+["/home/<user>/.config/opencode/plugins/opencode-sidebar/src/tui.tsx", { "enabled": true }]
 ```
 
 Keep any existing plugin entries. Do not duplicate the entry if it is already present.
@@ -30,7 +30,7 @@ Keep any existing plugin entries. Do not duplicate the entry if it is already pr
 ## macOS / Linux commands
 
 ```bash
-PLUGIN_DIR="$HOME/.config/opencode/plugins/opencode-session-timeline"
+PLUGIN_DIR="$HOME/.config/opencode/plugins/opencode-sidebar"
 mkdir -p "$(dirname "$PLUGIN_DIR")"
 
 if [ -d "$PLUGIN_DIR/.git" ]; then
@@ -51,7 +51,7 @@ npm install --prefix "$PLUGIN_DIR"
 ## Windows PowerShell commands
 
 ```powershell
-$PluginDir = Join-Path $HOME '.config\opencode\plugins\opencode-session-timeline'
+$PluginDir = Join-Path $HOME '.config\opencode\plugins\opencode-sidebar'
 $PluginParent = Split-Path -Parent $PluginDir
 New-Item -ItemType Directory -Force -Path $PluginParent | Out-Null
 
@@ -67,7 +67,7 @@ npm install --prefix $PluginDir
 For `tui.json` on Windows, use an absolute path with forward slashes or escaped backslashes. Forward slashes are easiest:
 
 ```json
-["C:/Users/<user>/.config/opencode/plugins/opencode-session-timeline/src/tui.tsx", { "enabled": true }]
+["C:/Users/<user>/.config/opencode/plugins/opencode-sidebar/src/tui.tsx", { "enabled": true }]
 ```
 
 If OpenCode shows a Bun segmentation fault while installing or loading plugins, stop retrying the same `bunx` or `bun install` command in that session. Finish the clone and dependency install with PowerShell + npm, update `tui.json`, then restart OpenCode. The plugin is local TypeScript/TSX plus npm dependencies; it does not require Bun for dependency installation.
@@ -80,7 +80,7 @@ After editing `~/.config/opencode/tui.json`, restart OpenCode. The TUI config is
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    ["/home/<user>/.config/opencode/plugins/opencode-session-timeline/src/tui.tsx", { "enabled": true }]
+    ["/home/<user>/.config/opencode/plugins/opencode-sidebar/src/tui.tsx", { "enabled": true }]
   ]
 }
 ```
