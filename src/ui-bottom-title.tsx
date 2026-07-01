@@ -2,7 +2,7 @@
 
 import type { TuiRouteCurrent } from "@opencode-ai/plugin/tui";
 import type { ColorInput } from "@opentui/core";
-import type { JSX } from "solid-js";
+import { type Accessor, createMemo, type JSX } from "solid-js";
 
 const HOST_WIDE_BREAKPOINT = 120;
 
@@ -32,8 +32,15 @@ interface SessionTitleTheme {
   readonly secondary: ColorInput;
 }
 
-interface RenderAppBottomSessionTitleArgs extends CurrentSessionBottomTitleArgs {
-  readonly theme: SessionTitleTheme;
+interface CurrentSessionBottomTitleAccessorArgs {
+  readonly route: Accessor<TuiRouteCurrent>;
+  readonly getSession: SessionTitleLookup;
+  readonly width: Accessor<number>;
+  readonly revision?: Accessor<unknown>;
+}
+
+interface RenderAppBottomSessionTitleArgs extends CurrentSessionBottomTitleAccessorArgs {
+  readonly theme: Accessor<SessionTitleTheme>;
 }
 
 type SessionTitlePaletteIndex = 0 | 1 | 2 | 3 | 4 | 5;
@@ -42,14 +49,30 @@ export function currentSessionBottomTitle(args: CurrentSessionBottomTitleArgs): 
   return currentSessionBottomTitleEntry(args)?.title;
 }
 
-export function renderAppBottomSessionTitle(args: RenderAppBottomSessionTitleArgs): JSX.Element | null {
-  const entry = currentSessionBottomTitleEntry(args);
-  if (entry === undefined) return null;
+export function createAppBottomSessionTitleEntry(
+  args: CurrentSessionBottomTitleAccessorArgs,
+): Accessor<CurrentSessionBottomTitle | undefined> {
+  return createMemo(() => {
+    args.revision?.();
+    return currentSessionBottomTitleEntry({
+      route: args.route(),
+      getSession: args.getSession,
+      width: args.width(),
+    });
+  });
+}
+
+export function renderAppBottomSessionTitle(args: RenderAppBottomSessionTitleArgs): JSX.Element {
+  const entry = createAppBottomSessionTitleEntry(args);
+  const titleText = createMemo(() => entry()?.title ?? "");
+  const titleColor = createMemo(() => {
+    const current = entry();
+    const theme = args.theme();
+    return current === undefined ? theme.secondary : sessionTitleColor(current.sessionId, theme);
+  });
   return (
-    <box height={1} flexDirection="row" justifyContent="center" overflow="hidden" minWidth={0}>
-      <text fg={sessionTitleColor(entry.sessionId, args.theme)} wrapMode="none">
-        {entry.title}
-      </text>
+    <box height={1} width="100%" flexDirection="row" justifyContent="center" overflow="hidden" minWidth={0}>
+      <text content={titleText()} fg={titleColor()} wrapMode="none" />
     </box>
   );
 }

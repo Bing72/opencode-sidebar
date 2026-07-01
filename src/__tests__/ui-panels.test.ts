@@ -1,7 +1,9 @@
 import type { TuiRouteCurrent } from "@opencode-ai/plugin/tui";
+import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 
 import {
+  createAppBottomSessionTitleEntry,
   currentSessionBottomTitle,
   promptTimerColumns,
   promptTimerText,
@@ -9,6 +11,14 @@ import {
   sessionTitleColor,
   timelineEntryColor,
 } from "../ui-panels";
+
+const testJsxFactory = {
+  createElement(type: string, props: Record<string, unknown> | null, ...children: unknown[]): unknown {
+    return { type, props, children };
+  },
+};
+
+Object.defineProperty(globalThis, "React", { configurable: true, value: testJsxFactory });
 
 const theme = {
   accent: "theme-accent",
@@ -34,6 +44,16 @@ function titleLookup(
     const title = titles.get(sessionId);
     return title === undefined ? undefined : { title };
   };
+}
+
+function withSolidRoot<T>(run: () => T): T {
+  return createRoot((dispose) => {
+    try {
+      return run();
+    } finally {
+      dispose();
+    }
+  });
 }
 
 describe("timeline panel rendering helpers", () => {
@@ -97,17 +117,130 @@ describe("timeline panel rendering helpers", () => {
     expect(title).toBeUndefined();
   });
 
-  it("T-UI-07 renders no app_bottom title when the terminal is wide", () => {
+  it("T-UI-07 keeps a non-null app_bottom root when the terminal starts wide", () => {
     const route: TuiRouteCurrent = { name: "session", params: { sessionID: "s1" } };
 
-    const element = renderAppBottomSessionTitle({
+    const element = withSolidRoot(() =>
+      renderAppBottomSessionTitle({
+        route: () => route,
+        getSession: titleLookup(new Map([["s1", "세션 분석"]])),
+        theme: () => bottomTitleTheme,
+        width: () => 121,
+      }),
+    );
+
+    expect(element).toMatchObject({
+      type: "box",
+      props: {
+        height: 1,
+        width: "100%",
+        flexDirection: "row",
+        justifyContent: "center",
+        overflow: "hidden",
+        minWidth: 0,
+      },
+    });
+  });
+
+  it("T-UI-13 updates the mounted app_bottom title when the terminal shrinks", () => {
+    const route: TuiRouteCurrent = { name: "session", params: { sessionID: "s1" } };
+
+    withSolidRoot(() => {
+      const [width, setWidth] = createSignal(121);
+      const entry = createAppBottomSessionTitleEntry({
+        route: () => route,
+        getSession: titleLookup(new Map([["s1", "세션 분석"]])),
+        width,
+      });
+
+      expect(entry()).toBeUndefined();
+      setWidth(80);
+      expect(entry()).toEqual({ sessionId: "s1", title: "세션 분석" });
+    });
+  });
+
+  it("T-UI-14 keeps the mounted app_bottom title reactive to data refreshes", () => {
+    const route: TuiRouteCurrent = { name: "session", params: { sessionID: "s1" } };
+    const titles = new Map([["s1", "초기 제목"]]);
+
+    withSolidRoot(() => {
+      const [revision, setRevision] = createSignal(0);
+      const entry = createAppBottomSessionTitleEntry({
+        route: () => route,
+        getSession: titleLookup(titles),
+        width: () => 80,
+        revision,
+      });
+
+      expect(entry()).toEqual({ sessionId: "s1", title: "초기 제목" });
+      titles.set("s1", "변경된 제목");
+      setRevision((value) => value + 1);
+      expect(entry()).toEqual({ sessionId: "s1", title: "변경된 제목" });
+    });
+  });
+
+  it("T-UI-15 keeps the mounted app_bottom title hidden on wide refreshes", () => {
+    const route: TuiRouteCurrent = { name: "session", params: { sessionID: "s1" } };
+
+    withSolidRoot(() => {
+      const [revision, setRevision] = createSignal(0);
+      const entry = createAppBottomSessionTitleEntry({
+        route: () => route,
+        getSession: titleLookup(new Map([["s1", "세션 분석"]])),
+        width: () => 121,
+        revision,
+      });
+
+      expect(entry()).toBeUndefined();
+      setRevision((value) => value + 1);
+      expect(entry()).toBeUndefined();
+    });
+  });
+
+  it("T-UI-16 renders an empty mounted app_bottom title while wide", () => {
+    const route: TuiRouteCurrent = { name: "session", params: { sessionID: "s1" } };
+
+    const element = withSolidRoot(() =>
+      renderAppBottomSessionTitle({
+        route: () => route,
+        getSession: titleLookup(new Map([["s1", "세션 분석"]])),
+        theme: () => bottomTitleTheme,
+        width: () => 121,
+      }),
+    );
+
+    expect(element).toMatchObject({
+      children: [{ type: "text", props: { content: "", fg: bottomTitleTheme.secondary, wrapMode: "none" } }],
+    });
+  });
+
+  it("T-UI-17 renders the mounted app_bottom title while narrow", () => {
+    const route: TuiRouteCurrent = { name: "session", params: { sessionID: "s1" } };
+
+    const element = withSolidRoot(() =>
+      renderAppBottomSessionTitle({
+        route: () => route,
+        getSession: titleLookup(new Map([["s1", "세션 분석"]])),
+        theme: () => bottomTitleTheme,
+        width: () => 80,
+      }),
+    );
+
+    expect(element).toMatchObject({
+      children: [{ type: "text", props: { content: "세션 분석", fg: bottomTitleTheme.success, wrapMode: "none" } }],
+    });
+  });
+
+  it("T-UI-18 preserves raw title lookup behavior for wide values", () => {
+    const route: TuiRouteCurrent = { name: "session", params: { sessionID: "s1" } };
+
+    const title = currentSessionBottomTitle({
       route,
       getSession: titleLookup(new Map([["s1", "세션 분석"]])),
-      theme: bottomTitleTheme,
       width: 121,
     });
 
-    expect(element).toBeNull();
+    expect(title).toBeUndefined();
   });
 
   it("T-UI-08 keeps the same app_bottom title color for the same session", () => {

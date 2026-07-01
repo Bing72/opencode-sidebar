@@ -12,7 +12,12 @@ import type { Part, PluginOptions, Session, SessionStatus, TimelineEntry, Timeli
 import { agentRowsForSession } from "./ui-agent-rows";
 import { renderAgentRow } from "./ui-rows";
 
-export { currentSessionBottomTitle, renderAppBottomSessionTitle, sessionTitleColor } from "./ui-bottom-title";
+export {
+  createAppBottomSessionTitleEntry,
+  currentSessionBottomTitle,
+  renderAppBottomSessionTitle,
+  sessionTitleColor,
+} from "./ui-bottom-title";
 export { renderSessionsPanel } from "./ui-sessions-panel";
 
 export interface PanelDeps {

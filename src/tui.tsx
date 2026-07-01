@@ -203,12 +203,12 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     order: 55,
     slots: {
       app_bottom(_ctx: TuiSlotContext) {
-        dataRev();
         return renderAppBottomSessionTitle({
-          route: api.route.current,
+          route: () => api.route.current,
           getSession: (sessionId) => api.state.session.get(sessionId),
-          theme: api.theme.current,
-          width: rendererWidth.current(),
+          theme: () => api.theme.current,
+          width: rendererWidth.current,
+          revision: dataRev,
         });
       },
       session_prompt_right(_ctx: TuiSlotContext, props: SlotProps) {
