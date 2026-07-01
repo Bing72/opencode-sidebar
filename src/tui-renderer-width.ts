@@ -6,6 +6,7 @@ export interface RendererWidthSource {
   readonly width: number;
   readonly on: (event: "resize", handler: RendererResizeHandler) => void;
   readonly off: (event: "resize", handler: RendererResizeHandler) => void;
+  readonly requestRender?: () => void;
 }
 
 export interface RendererWidthTracker {
@@ -17,6 +18,7 @@ export function createRendererWidthTracker(renderer: RendererWidthSource): Rende
   const [current, setCurrent] = createSignal(renderer.width);
   const onResize = (width: number): void => {
     setCurrent(width);
+    queueMicrotask(() => renderer.requestRender?.());
   };
   renderer.on("resize", onResize);
   return {

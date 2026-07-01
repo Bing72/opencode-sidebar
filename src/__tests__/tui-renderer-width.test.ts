@@ -9,6 +9,7 @@ import { currentSessionBottomTitle } from "../ui-panels";
 
 class RendererWidthHarness implements RendererWidthSource {
   width: number;
+  renderRequests = 0;
   private handler: RendererResizeHandler | undefined;
 
   constructor(width: number) {
@@ -26,6 +27,10 @@ class RendererWidthHarness implements RendererWidthSource {
   resize(width: number): void {
     this.width = width;
     this.handler?.(width);
+  }
+
+  requestRender(): void {
+    this.renderRequests += 1;
   }
 }
 
@@ -57,5 +62,19 @@ describe("renderer width tracker", () => {
     renderer.resize(80);
 
     expect(tracker.current()).toBe(120);
+  });
+
+  it("T-TUI-03 schedules a renderer repaint after applying resize width", async () => {
+    const renderer = new RendererWidthHarness(121);
+    const tracker = createRendererWidthTracker(renderer);
+
+    renderer.resize(80);
+
+    expect(tracker.current()).toBe(80);
+    expect(renderer.renderRequests).toBe(0);
+
+    await Promise.resolve();
+
+    expect(renderer.renderRequests).toBe(1);
   });
 });
