@@ -81,7 +81,7 @@ describe("session row helpers", () => {
   });
 
   it("T-ROW-07 keeps the project folder as a standalone tab header line", () => {
-    expect(tabHeaderProjectParts("~/opencode-plugin")).toEqual({ projectPath: "~/opencode-plugin" });
+    expect(tabHeaderProjectParts("~/demo-project")).toEqual({ projectPath: "~/demo-project" });
     expect(tabHeaderProjectParts(undefined)).toBeUndefined();
   });
 

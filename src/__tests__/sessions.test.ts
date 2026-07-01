@@ -121,12 +121,12 @@ describe("buildSessionEntries", () => {
   });
 
   it("T-SE-06 derives a compact current session project path for the tab header", () => {
-    const current = session("s1", "Idle work", 1_000, { directory: `${homedir()}/opencode-plugin` });
-    const nested = session("nested", "Nested work", 2_000, { directory: `${homedir()}/work/opencode-plugin` });
+    const current = session("s1", "Idle work", 1_000, { directory: `${homedir()}/opencode-sidebar` });
+    const nested = session("nested", "Nested work", 2_000, { directory: `${homedir()}/work/opencode-sidebar` });
     const sessions = [current, nested];
 
-    expect(currentSessionProjectPath(sessions, "s1")).toBe("~/opencode-plugin");
-    expect(currentSessionProjectPath(sessions, "nested")).toBe("~/work/opencode-plugin");
+    expect(currentSessionProjectPath(sessions, "s1")).toBe("~/opencode-sidebar");
+    expect(currentSessionProjectPath(sessions, "nested")).toBe("~/work/opencode-sidebar");
     expect(currentSessionProjectPath(sessions, "missing")).toBeUndefined();
 
     const rows = buildSessionEntries([current], new Map<string, SessionStatus>(), {
@@ -139,7 +139,7 @@ describe("buildSessionEntries", () => {
     if (row === undefined) throw new Error("Expected one session row");
     expect(row).not.toHaveProperty("statusReason");
     expect(row.detail).toBe("Idle work\nidle\nUpdated 1m ago");
-    expect(row.detail).not.toContain("/home/bing72/opencode-plugin");
+    expect(row.detail).not.toContain(`${homedir()}/opencode-sidebar`);
   });
 
   it("T-SE-09 marks only non-current rows as row-action eligible", () => {
