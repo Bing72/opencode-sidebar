@@ -37,6 +37,7 @@ interface SessionActionMouseEvent {
 export interface SessionRowActions {
   readonly openSession: (sessionId: string) => void;
   readonly confirmDeleteSession?: (sessionId: string) => void;
+  readonly togglePinnedSession?: (sessionId: string) => void;
 }
 
 export interface SessionGlyphTitleParts {
@@ -75,6 +76,8 @@ export interface RenderSessionRowsArgs {
 const SESSION_GLYPH_TITLE_SEPARATOR = " ";
 const SESSION_STATUS_REASON_SEPARATOR = " · ";
 export const SESSION_DELETE_ACTION_GLYPH = "×";
+export const SESSION_PINNED_ACTION_GLYPH = "◆";
+export const SESSION_UNPINNED_ACTION_GLYPH = "◇";
 
 export function sessionGlyphTitleParts(entry: Pick<SessionEntry, "glyph" | "title">): SessionGlyphTitleParts {
   return {
@@ -154,6 +157,13 @@ export function sessionDeleteActionColor<Color>(theme: { readonly error: Color }
   return theme.error;
 }
 
+export function sessionPinActionColor<Color>(
+  pinned: boolean,
+  theme: { readonly warning: Color; readonly textMuted: Color },
+): Color {
+  return pinned ? theme.warning : theme.textMuted;
+}
+
 export function handleSessionDeleteMouseUp(
   event: SessionActionMouseEvent,
   entry: Pick<SessionEntry, "sessionID" | "deletable">,
@@ -161,6 +171,15 @@ export function handleSessionDeleteMouseUp(
 ): void {
   event.stopPropagation();
   if (entry.deletable) confirmDeleteSession(entry.sessionID);
+}
+
+export function handleSessionPinMouseUp(
+  event: SessionActionMouseEvent,
+  entry: Pick<SessionEntry, "sessionID">,
+  togglePinnedSession: (sessionId: string) => void,
+): void {
+  event.stopPropagation();
+  togglePinnedSession(entry.sessionID);
 }
 
 export function renderTabs(args: RenderTabsArgs): JSX.Element {
@@ -231,6 +250,7 @@ export function renderSessionRows(args: RenderSessionRowsArgs): JSX.Element[] {
   const { actions, busySpinnerFrame, rows, theme } = args;
   return rows.map((entry) => {
     const confirmDeleteSession = actions.confirmDeleteSession;
+    const togglePinnedSession = actions.togglePinnedSession;
     const titleParts = sessionGlyphTitleParts(entry);
     const statusParts = sessionStatusReasonParts(entry);
     return (
@@ -255,6 +275,14 @@ export function renderSessionRows(args: RenderSessionRowsArgs): JSX.Element[] {
           </box>
           <box flexDirection="row" flexShrink={0}>
             <text fg={theme.textMuted}>{` ${formatSessionAge(entry.updatedMs)} ago`}</text>
+            {togglePinnedSession === undefined ? null : (
+              <text
+                fg={sessionPinActionColor(entry.pinned, theme)}
+                onMouseUp={(event) => handleSessionPinMouseUp(event, entry, togglePinnedSession)}
+              >
+                {` ${entry.pinned ? SESSION_PINNED_ACTION_GLYPH : SESSION_UNPINNED_ACTION_GLYPH}`}
+              </text>
+            )}
             {entry.deletable && confirmDeleteSession !== undefined ? (
               <text
                 fg={sessionDeleteActionColor(theme)}

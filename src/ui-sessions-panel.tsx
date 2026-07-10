@@ -15,12 +15,16 @@ export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Ele
   const theme = deps.api.theme.current;
   const sessions = deps.sessions();
   const sessionStatuses = deps.sessionStatuses();
+  const filterQuery = deps.sessionControls.filterQuery();
+  const pinnedSessionIds = deps.sessionControls.pinnedSessionIds();
   const reloadGeneration = deps.visibleHistoryRefreshGeneration();
   const busySpinnerFrame = () => sessionBusySpinnerFrame(deps.sessionBusySpinnerFrameIndex());
   const sessionOptions = {
     currentSessionId: sessionId,
     now: deps.now(),
     maxSessions: deps.options.maxSessions ?? DEFAULT_MAX_SESSIONS,
+    filterQuery,
+    pinnedSessionIds,
   };
   const childActivityStatuses = prepareSessionChildActivityStatuses(
     sessions,
@@ -39,6 +43,31 @@ export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Ele
   const error = deps.sessionError();
   return (
     <box flexDirection="column">
+      <box height={1} flexDirection="row" overflow="hidden" minWidth={0}>
+        <text fg={theme.accent ?? theme.primary} onMouseUp={deps.sessionControls.openSwitcher} wrapMode="none">
+          {"Switch"}
+        </text>
+        <text fg={theme.textMuted} wrapMode="none">
+          {" | "}
+        </text>
+        <text
+          fg={filterQuery.length === 0 ? theme.textMuted : theme.warning}
+          onMouseUp={deps.sessionControls.openFilter}
+          wrapMode="none"
+        >
+          {filterQuery.length === 0 ? "Filter" : "[Filter]"}
+        </text>
+        {filterQuery.length === 0 ? null : (
+          <text fg={theme.textMuted} onMouseUp={deps.sessionControls.clearFilter} wrapMode="none">
+            {" · Clear"}
+          </text>
+        )}
+      </box>
+      {filterQuery.length === 0 ? null : (
+        <box height={1} overflow="hidden" minWidth={0}>
+          <text fg={theme.textMuted} wrapMode="none">{`Filter: ${filterQuery}`}</text>
+        </box>
+      )}
       {error === undefined ? null : (
         <box height={1}>
           <text fg={theme.warning}>{error}</text>
@@ -46,7 +75,7 @@ export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Ele
       )}
       {rows.length === 0 ? (
         <box height={1}>
-          <text fg={theme.textMuted}>{"No sessions"}</text>
+          <text fg={theme.textMuted}>{filterQuery.length === 0 ? "No sessions" : "No matching sessions"}</text>
         </box>
       ) : (
         renderSessionRows({
@@ -56,6 +85,7 @@ export function renderSessionsPanel(deps: PanelDeps, sessionId: string): JSX.Ele
           actions: {
             openSession: (id) => deps.api.route.navigate("session", { sessionID: id }),
             confirmDeleteSession: deps.confirmDeleteSession,
+            togglePinnedSession: deps.sessionControls.togglePinnedSession,
           },
         })
       )}

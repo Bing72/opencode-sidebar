@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 
-import type { TuiPlugin, TuiPluginModule, TuiSlotContext } from "@opencode-ai/plugin/tui";
+import type { TuiDialogSelectOption, TuiPlugin, TuiPluginModule, TuiSlotContext } from "@opencode-ai/plugin/tui";
 import { useTerminalDimensions } from "@opentui/solid";
 import { createSignal, type JSX } from "solid-js";
 
@@ -8,6 +8,14 @@ import { resolveChildIdFrom } from "./agents";
 import { createCoalescer } from "./coalesce";
 import { createSessionActions } from "./session-actions";
 import { loadSessionChildren, loadSessionHistory } from "./session-data";
+import { buildSessionSwitchOptions } from "./session-navigation";
+import {
+  PINNED_SESSION_IDS_KEY,
+  parsePinnedSessionIds,
+  removePinnedSessionId,
+  serializePinnedSessionIds,
+  togglePinnedSessionId,
+} from "./session-preferences";
 import { createGlobalSessionRefreshClient, createSessionRefresher } from "./session-refresh";
 import {
   type ImmediateSessionEvent,
@@ -62,6 +70,10 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   const [sessionStatuses, setSessionStatuses] = createSignal<ReadonlyMap<string, SessionStatus>>(new Map());
   const [idleObservedAt, setIdleObservedAt] = createSignal<ReadonlyMap<string, number>>(new Map());
   const [sessionError, setSessionError] = createSignal<string | undefined>();
+  const [sessionFilterQuery, setSessionFilterQuery] = createSignal("");
+  const [pinnedSessionIds, setPinnedSessionIds] = createSignal<ReadonlySet<string>>(
+    parsePinnedSessionIds(api.kv.get(PINNED_SESSION_IDS_KEY, [])),
+  );
   const deletedSessionIds = new Set<string>();
   let sessionMutationEpoch = 0;
   let disposed = false;
@@ -70,6 +82,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     dataRev,
     fetchHistory: (sid, limit) => loadSessionHistory(api.client.session, sid, limit),
     isDisposed: () => disposed,
+    isSessionExcluded: (sessionId) => deletedSessionIds.has(sessionId),
     liveEnvelopes: (sid) => api.state.session.messages(sid).map((info) => ({ info, parts: api.state.part(info.id) })),
     setDataRev,
     setSessionError,
@@ -128,12 +141,29 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     setChildrenVersion((value) => value + 1);
   };
 
+  const persistPinnedSessionIds = (ids: ReadonlySet<string>): void => {
+    api.kv.set(PINNED_SESSION_IDS_KEY, serializePinnedSessionIds(ids));
+  };
+
+  const togglePinnedSession = (sessionId: string): void => {
+    setPinnedSessionIds((previous) => {
+      const next = togglePinnedSessionId(previous, sessionId);
+      persistPinnedSessionIds(next);
+      return next;
+    });
+  };
+
   const discardSession = (sessionId: string): void => {
     sessionMutationEpoch += 1;
     deletedSessionIds.add(sessionId);
     setSessions((previous) => previous.filter((session) => session.id !== sessionId));
     setSessionStatuses((previous) => withoutMapEntry(previous, sessionId));
     setIdleObservedAt((previous) => withoutMapEntry(previous, sessionId));
+    setPinnedSessionIds((previous) => {
+      const next = removePinnedSessionId(previous, sessionId);
+      if (next !== previous) persistPinnedSessionIds(next);
+      return next;
+    });
     histories.dropHistory(sessionId);
     dropChildren(sessionId);
   };
@@ -195,6 +225,54 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     isDisposed: () => disposed,
     refreshSessions,
   });
+
+  const openSessionFilter = (): void => {
+    api.ui.dialog.replace(
+      () =>
+        (
+          <api.ui.DialogPrompt
+            title="Filter sessions"
+            placeholder="Title, path, slug, or session ID"
+            value={sessionFilterQuery()}
+            onConfirm={(value) => {
+              setSessionFilterQuery(value.trim());
+              api.ui.dialog.clear();
+            }}
+          />
+        ) as unknown as JSX.Element,
+    );
+  };
+
+  const openSessionSwitcher = (): void => {
+    const route = api.route.current;
+    const currentSessionId = "params" in route ? (strField(route.params?.sessionID) ?? "") : "";
+    const options: TuiDialogSelectOption<string>[] = buildSessionSwitchOptions(
+      sessions(),
+      sessionStatuses(),
+      currentSessionId,
+      pinnedSessionIds(),
+      Date.now(),
+    );
+    if (options.length === 0) {
+      api.ui.toast({ variant: "info", message: "No sessions available" });
+      return;
+    }
+    api.ui.dialog.replace(
+      () =>
+        (
+          <api.ui.DialogSelect
+            title="Switch session"
+            placeholder="Search sessions"
+            options={options}
+            current={currentSessionId}
+            onSelect={(option) => {
+              api.ui.dialog.clear();
+              api.route.navigate("session", { sessionID: option.value });
+            }}
+          />
+        ) as unknown as JSX.Element,
+    );
+  };
   const ticker = setInterval(() => setNow(Date.now()), TICK_MS);
   const sessionBusySpinnerTicker = setInterval(
     () => setSessionBusySpinnerFrameIndex(nextSessionBusySpinnerFrameIndex),
@@ -244,6 +322,14 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     idleObservedAt: (sessionId) => idleObservedAt().get(sessionId),
     sessionError,
     confirmDeleteSession: sessionActions.confirmDeleteSession,
+    sessionControls: {
+      filterQuery: sessionFilterQuery,
+      pinnedSessionIds,
+      clearFilter: () => setSessionFilterQuery(""),
+      openFilter: openSessionFilter,
+      openSwitcher: openSessionSwitcher,
+      togglePinnedSession,
+    },
   });
   api.slots.register({
     order: 55,

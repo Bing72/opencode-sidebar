@@ -8,6 +8,9 @@ On Windows PowerShell, prefer the PowerShell commands below. Do not run the Bash
 
 - Timeline rows show only real user queries from User Arguments.
 - Sessions is the default tab. It keeps the currently viewed session at the top and uses the host theme info color for busy sessions.
+- `Switch` opens a searchable session picker, `Filter` narrows visible rows, and `◆` pins sessions ahead of recent unpinned work.
+- Timeline and session activity history is loaded on demand with a maximum of four concurrent history requests.
+- OpenCode's built-in attention service reports completed and failed sessions without duplicate plugin notifications.
 - At `<= 120` terminal columns—the same breakpoint OpenCode uses for its automatic sidebar layout—the current session title is shown centered in `app_bottom` without a prefix. Wider terminals hide this bottom title.
 - The bottom session title uses a stable per-session rotation through the host theme palette, so the color stays fixed for the same session instead of flickering per render.
 - Use the mouse to switch Sessions/Timeline tabs. The plugin does not register a Ctrl+Tab shortcut.
@@ -26,6 +29,8 @@ Install and configure `opencode-sidebar` for the current user.
 ```
 
 Keep any existing plugin entries. Do not duplicate the entry if it is already present.
+
+4. Set `attention.enabled` to `true` in the same `tui.json`. Preserve any existing `notifications`, `sound`, `volume`, `sound_pack`, or `sounds` values.
 
 ## macOS / Linux commands
 
@@ -79,8 +84,13 @@ After editing `~/.config/opencode/tui.json`, restart OpenCode. The TUI config is
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["/home/<user>/.config/opencode/plugins/opencode-sidebar/src/tui.tsx"]
+  "plugin": ["/home/<user>/.config/opencode/plugins/opencode-sidebar/src/tui.tsx"],
+  "attention": { "enabled": true }
 }
 ```
 
 Keep any other existing TUI plugin entries in the array.
+
+If attention is enabled but completion/error notifications do not arrive, confirm that
+`plugin_enabled["internal:notifications"]` is not set to `false`; the plugin intentionally relies on OpenCode's
+built-in notification owner to avoid duplicate alerts.

@@ -283,4 +283,47 @@ describe("buildSessionEntries", () => {
     expect(rows.map((row) => row.sessionID)).toEqual(["child", "parent"]);
     expect(rows[0]).toMatchObject({ current: true, deletable: false });
   });
+
+  it("T-SE-17 keeps the current session first and sorts pinned sessions before recent unpinned rows", () => {
+    const rows = buildSessionEntries(
+      [
+        session("recent", "Recent work", 70_000),
+        session("pinned", "Pinned work", 60_000),
+        session("current", "Current work", 50_000),
+        session("older", "Older work", 40_000),
+      ],
+      new Map<string, SessionStatus>(),
+      {
+        currentSessionId: "current",
+        now: 80_000,
+        maxSessions: 3,
+        pinnedSessionIds: new Set(["pinned"]),
+      },
+    );
+
+    expect(rows.map((row) => [row.sessionID, row.pinned])).toEqual([
+      ["current", false],
+      ["pinned", true],
+      ["recent", false],
+    ]);
+  });
+
+  it("T-SE-18 filters sessions by every title, path, slug, or ID search term before applying the cap", () => {
+    const rows = buildSessionEntries(
+      [
+        session("current", "Current work", 70_000),
+        { ...session("s-report", "Quarterly Report", 60_000, { directory: "/repo/finance" }), slug: "q2-report" },
+        session("other", "Other work", 50_000, { directory: "/repo/misc" }),
+      ],
+      new Map<string, SessionStatus>(),
+      {
+        currentSessionId: "current",
+        now: 80_000,
+        maxSessions: 1,
+        filterQuery: "finance REPORT",
+      },
+    );
+
+    expect(rows.map((row) => row.sessionID)).toEqual(["s-report"]);
+  });
 });

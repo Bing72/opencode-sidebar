@@ -4,10 +4,14 @@ import {
   agentStatusColor,
   currentSessionColor,
   handleSessionDeleteMouseUp,
+  handleSessionPinMouseUp,
   SESSION_DELETE_ACTION_GLYPH,
+  SESSION_PINNED_ACTION_GLYPH,
+  SESSION_UNPINNED_ACTION_GLYPH,
   sessionDeleteActionColor,
   sessionGlyphColor,
   sessionGlyphTitleParts,
+  sessionPinActionColor,
   sessionRowGlyph,
   sessionStatusColor,
   sessionStatusReasonParts,
@@ -27,6 +31,7 @@ const theme = {
 const deletableEntry: SessionEntry = {
   sessionID: "s1",
   title: "Session",
+  pinned: false,
   status: "idle",
   glyph: "○",
   current: false,
@@ -133,5 +138,30 @@ describe("session row helpers", () => {
     );
 
     expect(calls).toEqual([]);
+  });
+
+  it("T-ROW-13 uses warning for pinned rows and muted color for available pin actions", () => {
+    expect(SESSION_PINNED_ACTION_GLYPH).toBe("◆");
+    expect(SESSION_UNPINNED_ACTION_GLYPH).toBe("◇");
+    expect(sessionPinActionColor(true, theme)).toBe(theme.warning);
+    expect(sessionPinActionColor(false, theme)).toBe(theme.textMuted);
+  });
+
+  it("T-ROW-14 stops row navigation before toggling a session pin", () => {
+    const calls: string[] = [];
+    let stopped = false;
+
+    handleSessionPinMouseUp(
+      {
+        stopPropagation: () => {
+          stopped = true;
+        },
+      },
+      deletableEntry,
+      (sessionID) => calls.push(sessionID),
+    );
+
+    expect(stopped).toBe(true);
+    expect(calls).toEqual(["s1"]);
   });
 });

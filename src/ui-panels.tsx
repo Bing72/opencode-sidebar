@@ -40,6 +40,16 @@ export interface PanelDeps {
   readonly idleObservedAt: (sessionId: string) => number | undefined;
   readonly sessionError: () => string | undefined;
   readonly confirmDeleteSession: (sessionId: string) => void;
+  readonly sessionControls: SessionPanelControls;
+}
+
+export interface SessionPanelControls {
+  readonly filterQuery: () => string;
+  readonly pinnedSessionIds: () => ReadonlySet<string>;
+  readonly clearFilter: () => void;
+  readonly openFilter: () => void;
+  readonly openSwitcher: () => void;
+  readonly togglePinnedSession: (sessionId: string) => void;
 }
 
 const DEFAULT_MAX_ROWS = 50;

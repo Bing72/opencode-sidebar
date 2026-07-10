@@ -10,6 +10,12 @@ interface FetchCall {
   readonly limit: number;
 }
 
+interface Deferred<Value> {
+  readonly promise: Promise<Value>;
+  readonly resolve: (value: Value) => void;
+  readonly reject: (reason: unknown) => void;
+}
+
 interface HistoryHarness {
   readonly calls: readonly FetchCall[];
   readonly errors: () => string | undefined;
@@ -21,12 +27,24 @@ interface HistoryHarnessOptions {
   readonly fetchHistory?: (sessionId: string, limit: number) => Promise<ReadonlyArray<Envelope>>;
   readonly fetched?: ReadonlyArray<Envelope>;
   readonly isDisposed?: () => boolean;
+  readonly isSessionExcluded?: (sessionId: string) => boolean;
   readonly live?: ReadonlyArray<Envelope>;
   readonly reject?: Error;
 }
 
 function envelope(id: string, created: number, text: string): Envelope {
   return { info: userMsg(created, id), parts: [textPart(id, text, created)] };
+}
+
+function deferred<Value>(): Deferred<Value> {
+  let resolveValue: ((value: Value) => void) | undefined;
+  let rejectValue: ((reason: unknown) => void) | undefined;
+  const promise = new Promise<Value>((resolve, reject) => {
+    resolveValue = resolve;
+    rejectValue = reject;
+  });
+  if (resolveValue === undefined || rejectValue === undefined) throw new Error("Deferred was not initialized");
+  return { promise, resolve: resolveValue, reject: rejectValue };
 }
 
 function historyHarness(options: HistoryHarnessOptions = {}): HistoryHarness {
@@ -41,6 +59,7 @@ function historyHarness(options: HistoryHarnessOptions = {}): HistoryHarness {
       return options.reject === undefined ? Promise.resolve(options.fetched ?? []) : Promise.reject(options.reject);
     },
     isDisposed: options.isDisposed ?? (() => false),
+    ...(options.isSessionExcluded === undefined ? {} : { isSessionExcluded: options.isSessionExcluded }),
     liveEnvelopes: () => [...(options.live ?? [])],
     setDataRev: setRev,
     setSessionError: setError,
@@ -330,5 +349,240 @@ describe("tui history loader", () => {
       harness.loader.dispose();
       vi.useRealTimers();
     }
+  });
+
+  it("T-HIST-14 limits history loading to four concurrent requests and drains queued demand", async () => {
+    const pending = new Map<string, Deferred<ReadonlyArray<Envelope>>>();
+    let active = 0;
+    let maximumActive = 0;
+    const harness = historyHarness({
+      fetchHistory: (sessionId) => {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        const request = deferred<ReadonlyArray<Envelope>>();
+        pending.set(sessionId, request);
+        return request.promise.finally(() => {
+          active -= 1;
+        });
+      },
+    });
+
+    for (const sessionId of ["s1", "s2", "s3", "s4", "s5", "s6"]) harness.loader.ensureHistory(sessionId);
+
+    expect(harness.calls.map((call) => call.sessionId)).toEqual(["s1", "s2", "s3", "s4"]);
+    expect(maximumActive).toBe(4);
+
+    pending.get("s1")?.resolve([]);
+    await flushPromises();
+    await flushPromises();
+    expect(harness.calls.map((call) => call.sessionId)).toEqual(["s1", "s2", "s3", "s4", "s5"]);
+
+    pending.get("s2")?.resolve([]);
+    await flushPromises();
+    await flushPromises();
+    expect(harness.calls.map((call) => call.sessionId)).toEqual(["s1", "s2", "s3", "s4", "s5", "s6"]);
+    expect(maximumActive).toBe(4);
+
+    for (const sessionId of ["s3", "s4", "s5", "s6"]) pending.get(sessionId)?.resolve([]);
+    await flushPromises();
+    await flushPromises();
+    expect(harness.loader.inFlight.size).toBe(0);
+  });
+
+  it("T-HIST-15 coalesces a newer visible generation while the same session is in flight", async () => {
+    const first = deferred<ReadonlyArray<Envelope>>();
+    let calls = 0;
+    const harness = historyHarness({
+      fetchHistory: () => {
+        calls += 1;
+        return calls === 1 ? first.promise : Promise.resolve([envelope("fresh", 2_000, "fresh")]);
+      },
+    });
+    harness.loader.setHistory(new Map([["s1", [envelope("cached", 1_000, "cached")]]]));
+
+    harness.loader.ensureHistory("s1", 1);
+    harness.loader.ensureHistory("s1", 2);
+    harness.loader.ensureHistory("s1", 2);
+    first.resolve([envelope("older", 1_500, "older")]);
+    await flushPromises();
+    await flushPromises();
+
+    expect(harness.calls).toHaveLength(2);
+    expect(
+      harness.loader
+        .history()
+        .get("s1")
+        ?.map((item) => item.info.id),
+    ).toEqual(["fresh"]);
+  });
+
+  it("T-HIST-16 removes a queued deleted session before it can start", async () => {
+    const pending: Deferred<ReadonlyArray<Envelope>>[] = [];
+    const harness = historyHarness({
+      fetchHistory: () => {
+        const request = deferred<ReadonlyArray<Envelope>>();
+        pending.push(request);
+        return request.promise;
+      },
+    });
+
+    for (const sessionId of ["s1", "s2", "s3", "s4", "deleted"]) harness.loader.ensureHistory(sessionId);
+    harness.loader.dropHistory("deleted");
+    for (const request of pending) request.resolve([]);
+    await flushPromises();
+
+    expect(harness.calls.map((call) => call.sessionId)).toEqual(["s1", "s2", "s3", "s4"]);
+    expect(harness.loader.history().has("deleted")).toBe(false);
+  });
+
+  it("T-HIST-17 clears queued history demand on disposal", async () => {
+    const pending: Deferred<ReadonlyArray<Envelope>>[] = [];
+    const harness = historyHarness({
+      fetchHistory: () => {
+        const request = deferred<ReadonlyArray<Envelope>>();
+        pending.push(request);
+        return request.promise;
+      },
+    });
+
+    for (const sessionId of ["s1", "s2", "s3", "s4", "queued"]) harness.loader.ensureHistory(sessionId);
+    harness.loader.dispose();
+    for (const request of pending) request.resolve([]);
+    await flushPromises();
+
+    expect(harness.calls.map((call) => call.sessionId)).toEqual(["s1", "s2", "s3", "s4"]);
+  });
+
+  it("T-HIST-18 blocks late invalidation and render demand for a deleted session", async () => {
+    const excluded = new Set<string>();
+    const first = deferred<ReadonlyArray<Envelope>>();
+    const harness = historyHarness({
+      fetchHistory: () => first.promise,
+      isSessionExcluded: (sessionId) => excluded.has(sessionId),
+    });
+
+    harness.loader.ensureHistory("deleted");
+    excluded.add("deleted");
+    harness.loader.dropHistory("deleted");
+    harness.loader.invalidateHistory("deleted");
+    harness.loader.ensureHistory("deleted");
+    first.resolve([envelope("stale", 1_000, "stale")]);
+    await flushPromises();
+    await flushPromises();
+
+    expect(harness.calls).toHaveLength(1);
+    expect(harness.loader.history().has("deleted")).toBe(false);
+    expect(harness.loader.failed.has("deleted")).toBe(false);
+  });
+
+  it("T-HIST-19 reloads generation-less demand after the same session ID is recreated", async () => {
+    const excluded = new Set<string>();
+    const first = deferred<ReadonlyArray<Envelope>>();
+    let calls = 0;
+    const harness = historyHarness({
+      fetchHistory: () => {
+        calls += 1;
+        return calls === 1 ? first.promise : Promise.resolve([envelope("fresh", 2_000, "fresh")]);
+      },
+      isSessionExcluded: (sessionId) => excluded.has(sessionId),
+    });
+
+    harness.loader.ensureHistory("same-id");
+    excluded.add("same-id");
+    harness.loader.dropHistory("same-id");
+    excluded.delete("same-id");
+    harness.loader.ensureHistory("same-id");
+    first.resolve([envelope("old", 1_000, "old")]);
+    await flushPromises();
+    await flushPromises();
+
+    expect(harness.calls).toHaveLength(2);
+    expect(
+      harness.loader
+        .history()
+        .get("same-id")
+        ?.map((item) => item.info.id),
+    ).toEqual(["fresh"]);
+  });
+
+  it("T-HIST-20 preserves exponential backoff when invalidation arrives during failure cooldown", async () => {
+    vi.useFakeTimers();
+    const harness = historyHarness({ reject: new Error("offline") });
+    harness.loader.setHistory(new Map([["s1", [envelope("cached", 500, "cached")]]]));
+
+    try {
+      harness.loader.ensureHistory("s1", 1);
+      await flushPromises();
+      harness.loader.invalidateHistory("s1");
+
+      await vi.advanceTimersByTimeAsync(2_999);
+      expect(harness.calls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(harness.calls).toHaveLength(2);
+
+      await flushPromises();
+      harness.loader.invalidateHistory("s1");
+      await vi.advanceTimersByTimeAsync(5_999);
+      expect(harness.calls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(harness.calls).toHaveLength(3);
+    } finally {
+      harness.loader.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("T-HIST-21 releases a failed request slot to the next queued session", async () => {
+    vi.useFakeTimers();
+    const pending = new Map<string, Deferred<ReadonlyArray<Envelope>>>();
+    const harness = historyHarness({
+      fetchHistory: (sessionId) => {
+        const request = deferred<ReadonlyArray<Envelope>>();
+        pending.set(sessionId, request);
+        return request.promise;
+      },
+    });
+
+    try {
+      for (const sessionId of ["s1", "s2", "s3", "s4", "s5"]) harness.loader.ensureHistory(sessionId);
+      pending.get("s1")?.reject(new Error("failed"));
+      await flushPromises();
+      await flushPromises();
+
+      expect(harness.calls.map((call) => call.sessionId)).toEqual(["s1", "s2", "s3", "s4", "s5"]);
+    } finally {
+      harness.loader.dispose();
+      for (const request of pending.values()) request.resolve([]);
+      vi.useRealTimers();
+    }
+  });
+
+  it("T-HIST-22 preserves the newest pending generation across in-flight invalidation", async () => {
+    const first = deferred<ReadonlyArray<Envelope>>();
+    let calls = 0;
+    const harness = historyHarness({
+      fetchHistory: () => {
+        calls += 1;
+        return calls === 1 ? first.promise : Promise.resolve([envelope("fresh", 2_000, "fresh")]);
+      },
+    });
+    harness.loader.setHistory(new Map([["s1", [envelope("cached", 500, "cached")]]]));
+
+    harness.loader.ensureHistory("s1", 1);
+    harness.loader.ensureHistory("s1", 2);
+    harness.loader.invalidateHistory("s1");
+    first.resolve([envelope("stale", 1_000, "stale")]);
+    await flushPromises();
+    await flushPromises();
+
+    harness.loader.ensureHistory("s1", 2);
+
+    expect(harness.calls).toHaveLength(2);
+    expect(
+      harness.loader
+        .history()
+        .get("s1")
+        ?.map((item) => item.info.id),
+    ).toEqual(["fresh"]);
   });
 });

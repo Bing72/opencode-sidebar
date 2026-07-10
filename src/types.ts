@@ -48,6 +48,7 @@ export interface AgentEntry {
 export interface SessionEntry {
   readonly sessionID: string;
   readonly title: string;
+  readonly pinned: boolean;
   readonly status: SessionStatus["type"];
   readonly statusReason?: string;
   readonly glyph: string;

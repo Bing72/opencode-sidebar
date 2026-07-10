@@ -43,6 +43,8 @@ export interface BuildSessionOptions {
   readonly currentSessionId: string;
   readonly now: number;
   readonly maxSessions?: number;
+  readonly filterQuery?: string;
+  readonly pinnedSessionIds?: ReadonlySet<string>;
   readonly childActivityStatuses?: ReadonlyMap<string, SessionStatusType> | undefined;
 }
 
@@ -51,22 +53,20 @@ export function buildSessionEntries(
   statuses: ReadonlyMap<string, SessionStatus>,
   options: BuildSessionOptions,
 ): SessionEntry[] {
-  const limit = options.maxSessions === undefined || options.maxSessions <= 0 ? sessions.length : options.maxSessions;
+  const orderedSessions = visibleSessions(sessions, options);
+  const limit =
+    options.maxSessions === undefined || options.maxSessions <= 0 ? orderedSessions.length : options.maxSessions;
   const childStatuses = activeChildStatusByParent(sessions, statuses);
   const rows: SessionEntry[] = [];
-  for (const session of sessions) {
+  for (const session of orderedSessions.slice(0, limit)) {
     const current = session.id === options.currentSessionId;
-    if (session.parentID !== undefined && !current) continue;
     const status = effectiveSessionStatus(session.id, statuses, childStatuses, options.childActivityStatuses);
-    if (rows.length >= limit) {
-      if (!current) continue;
-      rows.pop();
-    }
     const running = status === "busy" || status === "retry";
     const updatedMs = Math.max(0, options.now - session.time.updated);
     rows.push({
       sessionID: session.id,
       title: truncateDisplay(session.title.length > 0 ? session.title : "Untitled session", SESSION_TITLE_COLUMNS),
+      pinned: options.pinnedSessionIds?.has(session.id) ?? false,
       status,
       ...statusReasonEntry(session.id, statuses, status),
       glyph: current ? SESSION_GLYPHS.current : SESSION_GLYPHS[status],
@@ -77,15 +77,36 @@ export function buildSessionEntries(
       detail: `${session.title}\n${status}\nUpdated ${formatSessionAge(updatedMs)} ago`,
     });
   }
-  const currentIndex = rows.findIndex((row) => row.current);
-  if (currentIndex > 0) {
-    const current = rows[currentIndex];
-    if (current !== undefined) {
-      rows.splice(currentIndex, 1);
-      rows.unshift(current);
-    }
-  }
   return rows;
+}
+
+function visibleSessions(sessions: ReadonlyArray<Session>, options: BuildSessionOptions): Session[] {
+  const queryTerms = sessionFilterTerms(options.filterQuery);
+  return sessions
+    .map((session, index) => ({ session, index }))
+    .filter(({ session }) => session.parentID === undefined || session.id === options.currentSessionId)
+    .filter(({ session }) => sessionMatchesFilter(session, queryTerms))
+    .sort((left, right) => {
+      const priority = sessionPriority(left.session, options) - sessionPriority(right.session, options);
+      return priority === 0 ? left.index - right.index : priority;
+    })
+    .map(({ session }) => session);
+}
+
+function sessionFilterTerms(query: string | undefined): string[] {
+  return query?.trim().toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+}
+
+function sessionMatchesFilter(session: Session, terms: ReadonlyArray<string>): boolean {
+  if (terms.length === 0) return true;
+  const searchable = [session.title, session.directory, session.id, session.slug].join("\n").toLowerCase();
+  return terms.every((term) => searchable.includes(term));
+}
+
+function sessionPriority(session: Session, options: BuildSessionOptions): number {
+  if (session.id === options.currentSessionId) return 0;
+  if (options.pinnedSessionIds?.has(session.id) === true) return 1;
+  return 2;
 }
 
 export function currentSessionProjectPath(

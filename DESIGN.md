@@ -32,12 +32,16 @@ This is a terminal-native observability panel for opencode sessions. It should f
 - `AgentsPanel`: latest visible sub-agent batch, always shows a header and empty state.
 - `TimelinePanel`: user query timeline built from real User Arguments, click opens detail dialog.
 - `SessionTabs`: `Timeline` and `Sessions`, click switches active panel.
-- `SessionsPanel`: recent opencode sessions with status glyph, title, updated age, click navigation, and theme-error `×` delete request on non-current rows.
+- `SessionsPanel`: recent opencode sessions with status glyph, title, updated age, click navigation, persistent plugin-local `◆` pins, submitted text filtering, a searchable quick-switch dialog, and theme-error `×` delete request on non-current rows.
 - `BottomSessionTitle`: current session title in `app_bottom` at `<= 120` columns, matching the host's automatic sidebar breakpoint; centered, prefix-free, and hidden on wider layouts.
 
 ## 6. Interaction
 
 - Mouse click is the primary interaction for tabs, timeline details, agent rows, and session navigation.
+- `Switch` opens the host `DialogSelect` for searchable mouse/keyboard selection without registering a plugin keymap. `Filter` opens `DialogPrompt`; clearing the filter restores all capped rows.
+- Pin actions stop row-event propagation and persist through a plugin-namespaced key in OpenCode's shared TUI KV store. The current session remains first, followed by pinned sessions and then recent unpinned sessions.
+- Session completion/error attention is owned by OpenCode's built-in `internal:notifications` plugin. Installation enables the host attention config instead of registering duplicate event listeners.
+- History demand is lazy at panel boundaries and globally limited to four concurrent SDK requests. Retry, invalidation, deletion, and disposal all pass through the same queue.
 - Session row `×` requests permanent deletion only on non-current sessions. It opens a final confirmation dialog; cancel clears the dialog without deleting, and confirm is the only path that calls the destructive session delete API.
 - Keyboard shortcuts are avoided unless the opencode keymap binding is known not to conflict with prompt editing.
 

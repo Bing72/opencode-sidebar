@@ -9,14 +9,39 @@ const HISTORY_RETRY_COOLDOWN_MS = 3_000;
 const HISTORY_RETRY_MAX_MS = 60_000;
 const MAX_HISTORY_MESSAGES = 600;
 const MAX_HISTORY_SESSIONS = 32;
+export const MAX_CONCURRENT_HISTORY_FETCHES = 4;
 
 export interface HistoryLoaderArgs {
   readonly dataRev: Accessor<number>;
   readonly fetchHistory: (sessionId: string, limit: number) => Promise<ReadonlyArray<Envelope>>;
   readonly isDisposed: () => boolean;
+  readonly isSessionExcluded?: (sessionId: string) => boolean;
   readonly liveEnvelopes: (sessionId: string) => Envelope[];
+  readonly maxConcurrentFetches?: number;
   readonly setDataRev: Setter<number>;
   readonly setSessionError: Setter<string | undefined>;
+}
+
+interface PendingHistoryRequest {
+  readonly sessionId: string;
+  readonly generation: number | undefined;
+}
+
+function newestGeneration(first: number | undefined, second: number | undefined): number | undefined {
+  if (first === undefined) return second;
+  if (second === undefined) return first;
+  return Math.max(first, second);
+}
+
+function rememberPendingRequest(
+  requests: Map<string, PendingHistoryRequest>,
+  sessionId: string,
+  generation: number | undefined,
+): void {
+  requests.set(sessionId, {
+    sessionId,
+    generation: newestGeneration(requests.get(sessionId)?.generation, generation),
+  });
 }
 
 export interface HistoryLoader {
@@ -43,16 +68,25 @@ export function createHistoryLoader(args: HistoryLoaderArgs): HistoryLoader {
   const inFlight = new Set<string>();
   const failed = new Set<string>();
   const invalidationVersions = new Map<string, number>();
-  const reloadAfterFlight = new Set<string>();
+  const inFlightVersions = new Map<string, number>();
+  const reloadAfterFlight = new Map<string, PendingHistoryRequest>();
+  const queuedRequests = new Map<string, PendingHistoryRequest>();
+  const requestQueue: string[] = [];
   const requestedReloadGenerations = new Map<string, number>();
   const retryAttempts = new Map<string, number>();
   const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const maxConcurrentFetches = Math.max(1, Math.floor(args.maxConcurrentFetches ?? MAX_CONCURRENT_HISTORY_FETCHES));
+  let activeFetches = 0;
+  let loaderDisposed = false;
   let pendingVisibleHistoryRefreshRequests = 0;
   let mergedKey = "";
   let mergedCache: Envelope[] = [];
 
   const boundedHistory = (merged: Envelope[]): Envelope[] =>
     capEnvelopes(merged.map(sanitizeEnvelope), MAX_HISTORY_MESSAGES);
+
+  const isDisposed = (): boolean => loaderDisposed || args.isDisposed();
+  const isSessionExcluded = (sessionId: string): boolean => args.isSessionExcluded?.(sessionId) ?? false;
 
   const absorbLiveTail = (sessionId: string): void => {
     setHistory((previous) => {
@@ -86,32 +120,59 @@ export function createHistoryLoader(args: HistoryLoaderArgs): HistoryLoader {
       setTimeout(() => {
         retryTimers.delete(sessionId);
         failed.delete(sessionId);
-        if (!args.isDisposed()) ensureHistory(sessionId, generation);
+        if (!isDisposed()) ensureHistory(sessionId, generation);
       }, retryDelay),
     );
   };
 
   const ensureHistory = (sessionId: string, generation?: number): void => {
+    if (isDisposed() || isSessionExcluded(sessionId) || failed.has(sessionId)) return;
+    if (inFlight.has(sessionId)) {
+      const currentVersion = invalidationVersions.get(sessionId) ?? 0;
+      const requestIsStale = inFlightVersions.get(sessionId) !== currentVersion;
+      if (requestIsStale || (generation !== undefined && requestedReloadGenerations.get(sessionId) !== generation)) {
+        rememberPendingRequest(reloadAfterFlight, sessionId, generation);
+      }
+      return;
+    }
+    if (queuedRequests.has(sessionId)) {
+      rememberPendingRequest(queuedRequests, sessionId, generation);
+      return;
+    }
     if (
       !shouldLoadHistory({
         sessionId,
         history: history(),
         inFlight,
         failed,
-        disposed: args.isDisposed(),
+        disposed: isDisposed(),
         requestedReloadGenerations,
         ...(generation === undefined ? {} : { visibleRefreshGeneration: generation }),
       })
     ) {
       return;
     }
+    queuedRequests.set(sessionId, { sessionId, generation });
+    requestQueue.push(sessionId);
+    drainHistoryQueue();
+  };
+
+  const startHistoryFetch = (request: PendingHistoryRequest): void => {
+    const { sessionId, generation } = request;
     if (generation !== undefined) requestedReloadGenerations.set(sessionId, generation);
     const invalidationVersion = invalidationVersions.get(sessionId) ?? 0;
     inFlight.add(sessionId);
-    args
-      .fetchHistory(sessionId, HISTORY_FETCH_LIMIT)
+    inFlightVersions.set(sessionId, invalidationVersion);
+    activeFetches += 1;
+    let fetch: Promise<ReadonlyArray<Envelope>>;
+    try {
+      fetch = args.fetchHistory(sessionId, HISTORY_FETCH_LIMIT);
+    } catch (error) {
+      fetch = Promise.reject(error);
+    }
+    fetch
       .then((full) => {
-        if (args.isDisposed()) return;
+        if (isDisposed()) return;
         if ((invalidationVersions.get(sessionId) ?? 0) !== invalidationVersion) return;
         clearFailure(sessionId);
         setHistory((previous) =>
@@ -123,20 +184,52 @@ export function createHistoryLoader(args: HistoryLoaderArgs): HistoryLoader {
         args.setDataRev((value) => value + 1);
       })
       .catch((error: unknown) => {
-        if (args.isDisposed() || (invalidationVersions.get(sessionId) ?? 0) !== invalidationVersion) return;
-        markFailure(sessionId, generation);
+        if (isDisposed() || (invalidationVersions.get(sessionId) ?? 0) !== invalidationVersion) return;
+        const pendingGeneration = reloadAfterFlight.get(sessionId)?.generation;
+        reloadAfterFlight.delete(sessionId);
+        markFailure(sessionId, newestGeneration(generation, pendingGeneration));
         args.setSessionError(error instanceof Error ? error.message : "Failed to load session history");
       })
       .finally(() => {
         inFlight.delete(sessionId);
-        if (!reloadAfterFlight.delete(sessionId)) return;
-        ensureHistory(sessionId);
+        inFlightVersions.delete(sessionId);
+        activeFetches -= 1;
+        const pending = reloadAfterFlight.get(sessionId);
+        reloadAfterFlight.delete(sessionId);
+        if (pending !== undefined) ensureHistory(sessionId, pending.generation);
+        drainHistoryQueue();
       });
   };
 
-  const dropHistory = (sessionId: string): void => {
+  const drainHistoryQueue = (): void => {
+    while (!isDisposed() && activeFetches < maxConcurrentFetches) {
+      const sessionId = requestQueue.shift();
+      if (sessionId === undefined) return;
+      const request = queuedRequests.get(sessionId);
+      if (request === undefined) continue;
+      queuedRequests.delete(sessionId);
+      if (isSessionExcluded(sessionId)) continue;
+      if (
+        !shouldLoadHistory({
+          sessionId,
+          history: history(),
+          inFlight,
+          failed,
+          disposed: isDisposed(),
+          requestedReloadGenerations,
+          ...(request.generation === undefined ? {} : { visibleRefreshGeneration: request.generation }),
+        })
+      ) {
+        continue;
+      }
+      startHistoryFetch(request);
+    }
+  };
+
+  const resetHistory = (sessionId: string, clearFailureState: boolean): void => {
     invalidationVersions.set(sessionId, (invalidationVersions.get(sessionId) ?? 0) + 1);
-    clearFailure(sessionId);
+    if (clearFailureState) clearFailure(sessionId);
+    queuedRequests.delete(sessionId);
     requestedReloadGenerations.delete(sessionId);
     reloadAfterFlight.delete(sessionId);
     setHistory((previous) => {
@@ -150,13 +243,21 @@ export function createHistoryLoader(args: HistoryLoaderArgs): HistoryLoader {
     args.setDataRev((value) => value + 1);
   };
 
+  const dropHistory = (sessionId: string): void => resetHistory(sessionId, true);
+
   const invalidateHistory = (sessionId: string): void => {
+    if (isSessionExcluded(sessionId)) return;
     const requestInFlight = inFlight.has(sessionId);
-    const shouldReload = history().has(sessionId) || requestInFlight;
-    dropHistory(sessionId);
-    if (!shouldReload) return;
-    if (requestInFlight) reloadAfterFlight.add(sessionId);
-    else ensureHistory(sessionId);
+    const queued = queuedRequests.get(sessionId);
+    const generation = newestGeneration(
+      queued?.generation,
+      newestGeneration(requestedReloadGenerations.get(sessionId), reloadAfterFlight.get(sessionId)?.generation),
+    );
+    const shouldReload = history().has(sessionId) || requestInFlight || queued !== undefined;
+    resetHistory(sessionId, false);
+    if (!shouldReload || failed.has(sessionId)) return;
+    if (requestInFlight) rememberPendingRequest(reloadAfterFlight, sessionId, generation);
+    else ensureHistory(sessionId, generation);
   };
 
   const mergedFor = (sessionId: string): Envelope[] => {
@@ -170,7 +271,10 @@ export function createHistoryLoader(args: HistoryLoaderArgs): HistoryLoader {
   return {
     absorbLiveTail,
     dispose: () => {
+      loaderDisposed = true;
       for (const timer of retryTimers.values()) clearTimeout(timer);
+      queuedRequests.clear();
+      requestQueue.length = 0;
       retryAttempts.clear();
       retryTimers.clear();
       reloadAfterFlight.clear();

@@ -114,4 +114,27 @@ describe("sessions panel child activity", () => {
     expect(statuses?.get("root")).toBe("busy");
     expect(statuses?.has("child")).toBe(false);
   });
+
+  it("T-USP-05 lazily requests history only for sessions matching the active filter", () => {
+    const loaded: string[] = [];
+
+    prepareSessionChildActivityStatuses(
+      [
+        session("current", "Current work", 70_000),
+        { ...session("finance", "Quarterly report", 60_000), directory: "/repo/finance" },
+        session("other", "Other work", 50_000),
+      ],
+      new Map(),
+      {
+        currentSessionId: "current",
+        now: 80_000,
+        maxSessions: 20,
+        filterQuery: "finance report",
+      },
+      (sessionId) => loaded.push(sessionId),
+      () => [],
+    );
+
+    expect(loaded).toEqual(["finance"]);
+  });
 });
