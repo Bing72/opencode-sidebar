@@ -11,14 +11,17 @@ export function userMsg(created: number, id = `u-${created}`): Message {
   };
 }
 
-export function assistantMsg(created: number, opts?: { readonly completed?: number; readonly id?: string }): Message {
+export function assistantMsg(
+  created: number,
+  opts?: { readonly completed?: number; readonly id?: string; readonly parentID?: string },
+): Message {
   const completed = opts?.completed;
   return {
     id: opts?.id ?? `a-${created}`,
     sessionID: "s1",
     role: "assistant",
     time: completed === undefined ? { created } : { created, completed },
-    parentID: "u1",
+    parentID: opts?.parentID ?? "u1",
     modelID: "claude",
     providerID: "anthropic",
     mode: "build",

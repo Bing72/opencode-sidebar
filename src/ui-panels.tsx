@@ -82,12 +82,11 @@ export function promptTimerColumns(viewColumns: number): number {
 export function renderAgentsPanel(deps: PanelDeps, sessionId: string): JSX.Element {
   const rows = agentRowsForSession(deps, sessionId);
   const merged = deps.mergedFor(sessionId);
+  const infos = merged.map((entry) => entry.info);
+  const partsByMsg = deps.partsByMsg(merged);
+  const status = deps.api.state.session.status(sessionId);
   const theme = deps.api.theme.current;
-  const liveNow = displayNow(
-    deps.api.state.session.status(sessionId),
-    merged.map((entry) => entry.info),
-    tickNow(deps.api.state.session.status(sessionId), deps.now),
-  );
+  const liveNow = displayNow(status, infos, partsByMsg, tickNow(status, deps.now));
   return (
     <box flexDirection="column">
       <box height={1}>
@@ -111,19 +110,13 @@ export function renderAgentsPanel(deps: PanelDeps, sessionId: string): JSX.Eleme
 export function renderTimelinePanel(deps: PanelDeps, sessionId: string): JSX.Element | null {
   deps.ensureHistory(sessionId);
   const merged = deps.mergedFor(sessionId);
-  const entries = buildTimeline(
-    merged.map((entry) => entry.info),
-    deps.partsByMsg(merged),
-    { maxRows: deps.options.maxRows ?? DEFAULT_MAX_ROWS },
-  );
+  const infos = merged.map((entry) => entry.info);
+  const partsByMsg = deps.partsByMsg(merged);
+  const entries = buildTimeline(infos, partsByMsg, { maxRows: deps.options.maxRows ?? DEFAULT_MAX_ROWS });
   if (entries.length === 0) return null;
   const theme = deps.api.theme.current;
   const status = deps.api.state.session.status(sessionId);
-  const liveNow = displayNow(
-    status,
-    merged.map((entry) => entry.info),
-    tickNow(status, deps.now),
-  );
+  const liveNow = displayNow(status, infos, partsByMsg, tickNow(status, deps.now));
   return (
     <box flexDirection="column">
       {entries.map((entry) => renderTimelineRow(deps, entry, sessionId, theme, liveNow))}
@@ -141,7 +134,7 @@ export function renderPromptTimer(deps: PanelDeps, sessionId: string): JSX.Eleme
   const idleObservedAt = status?.type === "idle" ? deps.idleObservedAt(sessionId) : undefined;
   const wallElapsed = computeElapsed(infos, partsByMsg, status, wallNow);
   if (!wallElapsed.hasData) return null;
-  const workNow = displayNow(status, infos, wallNow, idleObservedAt);
+  const workNow = displayNow(status, infos, partsByMsg, wallNow, idleObservedAt);
   const workElapsed = computeElapsed(infos, partsByMsg, status, workNow);
   const glyph = deps.options.timerGlyph ?? GLYPHS.timer;
   const availableColumns = promptTimerColumns(deps.width());
@@ -226,11 +219,8 @@ function openDetail(deps: PanelDeps, entry: TimelineEntry, sessionId: string): v
     const theme = deps.api.theme.current;
     const merged = deps.mergedFor(sessionId);
     const status = deps.api.state.session.status(sessionId);
-    const detailNow = displayNow(
-      status,
-      merged.map((item) => item.info),
-      tickNow(status, deps.now),
-    );
+    const infos = merged.map((item) => item.info);
+    const detailNow = displayNow(status, infos, deps.partsByMsg(merged), tickNow(status, deps.now));
     return (
       <box flexDirection="column" paddingTop={1} paddingBottom={1} paddingLeft={2} paddingRight={2}>
         <box height={1}>

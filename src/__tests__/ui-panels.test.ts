@@ -56,6 +56,16 @@ function withSolidRoot<T>(run: () => T): T {
   });
 }
 
+interface TestJsxElement {
+  readonly type: unknown;
+  readonly props: Readonly<Record<string, unknown>>;
+  readonly children: readonly unknown[];
+}
+
+function testJsxElement(value: unknown): TestJsxElement {
+  return value as TestJsxElement;
+}
+
 describe("timeline panel rendering helpers", () => {
   it("T-UI-01 applies timeline kind color options before theme fallbacks", () => {
     expect(timelineEntryColor("turn", { turnColor: "custom-turn" }, theme)).toBe("custom-turn");
@@ -117,7 +127,7 @@ describe("timeline panel rendering helpers", () => {
     expect(title).toBeUndefined();
   });
 
-  it("T-UI-07 keeps a non-null app_bottom root when the terminal starts wide", () => {
+  it("T-UI-07 hides app_bottom without occupying a row when the terminal starts wide", () => {
     const route: TuiRouteCurrent = { name: "session", params: { sessionID: "s1" } };
 
     const element = withSolidRoot(() =>
@@ -129,16 +139,9 @@ describe("timeline panel rendering helpers", () => {
       }),
     );
 
-    expect(element).toMatchObject({
+    expect(testJsxElement(element)).toMatchObject({
       type: "box",
-      props: {
-        height: 1,
-        width: "100%",
-        flexDirection: "row",
-        justifyContent: "center",
-        overflow: "hidden",
-        minWidth: 0,
-      },
+      props: { width: "100%", height: 1, visible: false },
     });
   });
 
@@ -197,24 +200,7 @@ describe("timeline panel rendering helpers", () => {
     });
   });
 
-  it("T-UI-16 renders an empty mounted app_bottom title while wide", () => {
-    const route: TuiRouteCurrent = { name: "session", params: { sessionID: "s1" } };
-
-    const element = withSolidRoot(() =>
-      renderAppBottomSessionTitle({
-        route: () => route,
-        getSession: titleLookup(new Map([["s1", "세션 분석"]])),
-        theme: () => bottomTitleTheme,
-        width: () => 121,
-      }),
-    );
-
-    expect(element).toMatchObject({
-      children: [{ type: "text", props: { content: "", fg: bottomTitleTheme.secondary, wrapMode: "none" } }],
-    });
-  });
-
-  it("T-UI-17 renders the mounted app_bottom title while narrow", () => {
+  it("T-UI-17 mounts a one-row app_bottom title while narrow", () => {
     const route: TuiRouteCurrent = { name: "session", params: { sessionID: "s1" } };
 
     const element = withSolidRoot(() =>
@@ -226,7 +212,17 @@ describe("timeline panel rendering helpers", () => {
       }),
     );
 
-    expect(element).toMatchObject({
+    expect(testJsxElement(element)).toMatchObject({
+      type: "box",
+      props: {
+        width: "100%",
+        height: 1,
+        visible: true,
+        flexDirection: "row",
+        justifyContent: "center",
+        overflow: "hidden",
+        minWidth: 0,
+      },
       children: [{ type: "text", props: { content: "세션 분석", fg: bottomTitleTheme.success, wrapMode: "none" } }],
     });
   });

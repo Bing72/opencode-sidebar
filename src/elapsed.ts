@@ -7,37 +7,49 @@ export function computeElapsed(
   status: SessionStatus | undefined,
   now: number,
 ): ElapsedResult {
-  const anchor = lastGenuineRequest(messages, partsByMsgId);
-  if (anchor === undefined) return { running: false, ms: 0, hasData: false };
-  return { running: status?.type === "busy", ms: Math.max(0, now - anchor), hasData: true };
+  const request = lastGenuineRequest(messages, partsByMsgId);
+  if (request === undefined) return { running: false, ms: 0, hasData: false };
+  return { running: status?.type === "busy", ms: Math.max(0, now - request.anchor), hasData: true };
 }
 
 export function displayNow(
   status: SessionStatus | undefined,
   messages: ReadonlyArray<Message>,
+  partsByMsgId: PartsByMsgId,
   wallNow: number,
   idleObservedAt?: number,
 ): number {
   if (status?.type === "busy") return wallNow;
-  return sessionEndTime(messages) ?? idleObservedAt ?? wallNow;
+  const request = lastGenuineRequest(messages, partsByMsgId);
+  return (
+    (request === undefined ? undefined : sessionEndTimeFor(messages, request.messageId)) ?? idleObservedAt ?? wallNow
+  );
 }
 
 export function tickNow(status: SessionStatus | undefined, now: () => number): number {
   return status?.type === "busy" ? now() : Date.now();
 }
 
-function lastGenuineRequest(messages: ReadonlyArray<Message>, partsByMsgId: PartsByMsgId): number | undefined {
-  let anchor: number | undefined;
+interface GenuineRequestAnchor {
+  readonly messageId: string;
+  readonly anchor: number;
+}
+
+function lastGenuineRequest(
+  messages: ReadonlyArray<Message>,
+  partsByMsgId: PartsByMsgId,
+): GenuineRequestAnchor | undefined {
+  let request: GenuineRequestAnchor | undefined;
   let latestCreated: number | undefined;
   for (const msg of messages) {
     const parts = partsByMsgId.get(msg.id) ?? [];
     if (!isGenuineRequest(msg, parts)) continue;
     if (latestCreated === undefined || msg.time.created > latestCreated) {
       latestCreated = msg.time.created;
-      anchor = requestAnchor(msg, parts);
+      request = { messageId: msg.id, anchor: requestAnchor(msg, parts) };
     }
   }
-  return anchor;
+  return request;
 }
 
 function requestAnchor(message: Message, parts: ReadonlyArray<Part>): number {
@@ -55,10 +67,10 @@ function firstTextPartStart(parts: ReadonlyArray<Part>): number | undefined {
   return undefined;
 }
 
-function sessionEndTime(messages: ReadonlyArray<Message>): number | undefined {
+function sessionEndTimeFor(messages: ReadonlyArray<Message>, parentId: string): number | undefined {
   let latest: number | undefined;
   for (const msg of messages) {
-    if (msg.role !== "assistant") continue;
+    if (msg.role !== "assistant" || msg.parentID !== parentId) continue;
     const completed = msg.time.completed;
     if (completed === undefined) continue;
     if (latest === undefined || completed > latest) latest = completed;

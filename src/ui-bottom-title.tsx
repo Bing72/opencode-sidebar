@@ -71,7 +71,15 @@ export function renderAppBottomSessionTitle(args: RenderAppBottomSessionTitleArg
     return current === undefined ? theme.secondary : sessionTitleColor(current.sessionId, theme);
   });
   return (
-    <box height={1} width="100%" flexDirection="row" justifyContent="center" overflow="hidden" minWidth={0}>
+    <box
+      width="100%"
+      height={1}
+      visible={entry() !== undefined}
+      flexDirection="row"
+      justifyContent="center"
+      overflow="hidden"
+      minWidth={0}
+    >
       <text content={titleText()} fg={titleColor()} wrapMode="none" />
     </box>
   );

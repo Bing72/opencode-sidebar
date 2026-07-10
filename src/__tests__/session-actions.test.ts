@@ -2,7 +2,6 @@ import type { JSX } from "solid-js";
 import { createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 
-import type { Envelope } from "../history";
 import { createSessionActions, type SessionActionApi } from "../session-actions";
 import type { SessionDeleteConfirmProps, SessionDeleteResult } from "../session-deletion";
 import type { Session, SessionStatus } from "../types";
@@ -14,16 +13,11 @@ interface ActionHarness {
   readonly calls: ReadonlyArray<{ readonly sessionID: string }>;
   readonly sessions: () => ReadonlyArray<Session>;
   readonly statuses: () => ReadonlyMap<string, SessionStatus>;
-  readonly history: () => ReadonlyMap<string, ReadonlyArray<Envelope>>;
-  readonly children: () => ReadonlyMap<string, ReadonlyArray<Session>>;
+  readonly discardedSessions: ReadonlyArray<string>;
+  readonly droppedChildren: ReadonlyArray<string>;
+  readonly droppedHistory: ReadonlyArray<string>;
   readonly sessionError: () => string | undefined;
   readonly refreshCalls: ReadonlyArray<boolean | undefined>;
-  readonly caches: {
-    readonly inFlight: Set<string>;
-    readonly failed: Set<string>;
-    readonly childrenInFlight: Set<string>;
-    readonly childrenRetryAt: Map<string, number>;
-  };
 }
 
 interface Deferred<Value> {
@@ -78,25 +72,10 @@ function actionHarness(deleteImpl: (sessionID: string) => Promise<SessionDeleteR
     ]),
   );
   const [sessionError, setSessionError] = createSignal<string | undefined>("previous error");
-  const [history, setHistory] = createSignal<ReadonlyMap<string, ReadonlyArray<Envelope>>>(
-    new Map([
-      ["s1", []],
-      ["s2", []],
-    ]),
-  );
-  const [children, setChildren] = createSignal<ReadonlyMap<string, ReadonlyArray<Session>>>(
-    new Map([
-      ["s1", []],
-      ["s2", []],
-    ]),
-  );
+  const droppedChildren: string[] = [];
+  const droppedHistory: string[] = [];
+  const discardedSessions: string[] = [];
   const refreshCalls: Array<boolean | undefined> = [];
-  const caches = {
-    inFlight: new Set(["s1"]),
-    failed: new Set(["s1"]),
-    childrenInFlight: new Set(["s1"]),
-    childrenRetryAt: new Map([["s1", 123]]),
-  };
   const api: SessionActionApi = {
     ui: {
       DialogConfirm: (props) => {
@@ -121,8 +100,18 @@ function actionHarness(deleteImpl: (sessionID: string) => Promise<SessionDeleteR
   };
   const actions = createSessionActions({
     api,
-    signals: { sessions, setSessions, setSessionStatuses, setSessionError, setHistory, setChildren },
-    caches,
+    signals: { sessions, setSessionError },
+    discardSession: (sessionId) => {
+      discardedSessions.push(sessionId);
+      setSessions((previous) => previous.filter((item) => item.id !== sessionId));
+      setSessionStatuses((previous) => {
+        const next = new Map(previous);
+        next.delete(sessionId);
+        return next;
+      });
+      droppedChildren.push(sessionId);
+      droppedHistory.push(sessionId);
+    },
     isDisposed: () => false,
     refreshSessions: (force) => refreshCalls.push(force),
   });
@@ -136,11 +125,11 @@ function actionHarness(deleteImpl: (sessionID: string) => Promise<SessionDeleteR
     calls,
     sessions,
     statuses,
-    history,
-    children,
+    discardedSessions,
+    droppedChildren,
+    droppedHistory,
     sessionError,
     refreshCalls,
-    caches,
   };
 }
 
@@ -168,12 +157,9 @@ describe("session action controller", () => {
     expect(harness.calls).toEqual([{ sessionID: "s1" }]);
     expect(harness.sessions().map((item) => item.id)).toEqual(["s2"]);
     expect(harness.statuses().has("s1")).toBe(false);
-    expect(harness.history().has("s1")).toBe(false);
-    expect(harness.children().has("s1")).toBe(false);
-    expect(harness.caches.inFlight.has("s1")).toBe(false);
-    expect(harness.caches.failed.has("s1")).toBe(false);
-    expect(harness.caches.childrenInFlight.has("s1")).toBe(false);
-    expect(harness.caches.childrenRetryAt.has("s1")).toBe(false);
+    expect(harness.discardedSessions).toEqual(["s1"]);
+    expect(harness.droppedChildren).toEqual(["s1"]);
+    expect(harness.droppedHistory).toEqual(["s1"]);
     expect(harness.sessionError()).toBeUndefined();
     expect(harness.refreshCalls).toEqual([true]);
   });
@@ -189,6 +175,7 @@ describe("session action controller", () => {
     expect(harness.calls).toEqual([{ sessionID: "s1" }]);
     expect(harness.sessions().map((item) => item.id)).toEqual(["s1", "s2"]);
     expect(harness.statuses().has("s1")).toBe(true);
+    expect(harness.discardedSessions).toEqual([]);
     expect(harness.sessionError()).toBe("Failed to delete session: boom");
     expect(harness.refreshCalls).toEqual([]);
   });

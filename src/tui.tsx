@@ -1,11 +1,13 @@
 /** @jsxImportSource @opentui/solid */
 
 import type { TuiPlugin, TuiPluginModule, TuiSlotContext } from "@opencode-ai/plugin/tui";
+import { useTerminalDimensions } from "@opentui/solid";
 import { createSignal, type JSX } from "solid-js";
 
 import { resolveChildIdFrom } from "./agents";
 import { createCoalescer } from "./coalesce";
 import { createSessionActions } from "./session-actions";
+import { loadSessionChildren, loadSessionHistory } from "./session-data";
 import { createGlobalSessionRefreshClient, createSessionRefresher } from "./session-refresh";
 import {
   type ImmediateSessionEvent,
@@ -15,13 +17,16 @@ import {
 import { currentSessionProjectPath, nextSessionBusySpinnerFrameIndex, SESSION_BUSY_SPINNER_TICK_MS } from "./sessions";
 import { DEFAULT_SIDEBAR_TAB, SIDEBAR_CONTENT_ORDER, shouldRefreshSessionsOnTabSelect } from "./tabs";
 import { createHistoryLoader } from "./tui-history";
-import { createRendererWidthTracker } from "./tui-renderer-width";
 import {
   canFetchChildren,
+  HISTORY_INVALIDATION_EVENTS,
   type LiveTailUpdate,
   liveTailFlushPlan,
   markChildrenFetch,
   SESSION_REFRESH_EVENTS,
+  type SessionReferenceEvent,
+  sessionIdFromEvent,
+  withoutMapEntry,
 } from "./tui-state";
 import type { Part, PluginOptions, Session, SessionStatus, SidebarTab } from "./types";
 import {
@@ -51,24 +56,19 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   const options = (rawOptions as PluginOptions | undefined) ?? {};
   const [now, setNow] = createSignal(Date.now());
   const [dataRev, setDataRev] = createSignal(0);
-  const rendererWidth = createRendererWidthTracker(api.renderer);
   const [sessionBusySpinnerFrameIndex, setSessionBusySpinnerFrameIndex] = createSignal(0);
   const [activeTab, setActiveTab] = createSignal<SidebarTab>(DEFAULT_SIDEBAR_TAB);
   const [sessions, setSessions] = createSignal<ReadonlyArray<Session>>([]);
   const [sessionStatuses, setSessionStatuses] = createSignal<ReadonlyMap<string, SessionStatus>>(new Map());
   const [idleObservedAt, setIdleObservedAt] = createSignal<ReadonlyMap<string, number>>(new Map());
   const [sessionError, setSessionError] = createSignal<string | undefined>();
+  const deletedSessionIds = new Set<string>();
+  let sessionMutationEpoch = 0;
   let disposed = false;
 
   const histories = createHistoryLoader({
     dataRev,
-    fetchHistory: (sid, limit) =>
-      api.client.session.messages({ sessionID: sid, limit }).then((res) =>
-        res.data?.map((item) => ({
-          info: item.info,
-          parts: item.parts,
-        })),
-      ),
+    fetchHistory: (sid, limit) => loadSessionHistory(api.client.session, sid, limit),
     isDisposed: () => disposed,
     liveEnvelopes: (sid) => api.state.session.messages(sid).map((info) => ({ info, parts: api.state.part(info.id) })),
     setDataRev,
@@ -76,9 +76,11 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   });
 
   const refreshSessions = createSessionRefresher(createGlobalSessionRefreshClient(api.client.session), {
+    excludedSessionIds: () => deletedSessionIds,
     isDisposed: () => disposed,
     now: Date.now,
     onRefreshSuccess: histories.onRefreshSuccess,
+    sessionMutationEpoch: () => sessionMutationEpoch,
     setError: setSessionError,
     setSessions,
     setStatuses: setSessionStatuses,
@@ -91,6 +93,7 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
 
   const [children, setChildren] = createSignal<ReadonlyMap<string, ReadonlyArray<Session>>>(new Map());
   const [childrenVersion, setChildrenVersion] = createSignal(0);
+  const childrenFetchVersions = new Map<string, number>();
   const childrenInFlight = new Set<string>();
   const childrenRetryAt = new Map<string, number>();
 
@@ -98,18 +101,41 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     const fetchNow = Date.now();
     if (disposed || childrenInFlight.has(sid) || !canFetchChildren(sid, childrenRetryAt, fetchNow)) return;
     markChildrenFetch(childrenRetryAt, sid, fetchNow);
+    const fetchVersion = childrenFetchVersions.get(sid) ?? 0;
     childrenInFlight.add(sid);
-    api.client.session
-      .children({ sessionID: sid })
-      .then((res) => {
-        if (disposed || !res.data) return;
-        setChildren((prev) => new Map(prev).set(sid, res.data));
+    loadSessionChildren(api.client.session, sid)
+      .then((loadedChildren) => {
+        if (disposed || (childrenFetchVersions.get(sid) ?? 0) !== fetchVersion) return;
+        setChildren((prev) => new Map(prev).set(sid, loadedChildren));
         setChildrenVersion((value) => value + 1);
       })
       .catch((error: unknown) => {
+        if (disposed || (childrenFetchVersions.get(sid) ?? 0) !== fetchVersion) return;
         setSessionError(error instanceof Error ? error.message : "Failed to load child sessions");
       })
       .finally(() => childrenInFlight.delete(sid));
+  };
+
+  const dropChildren = (sid: string): void => {
+    childrenFetchVersions.set(sid, (childrenFetchVersions.get(sid) ?? 0) + 1);
+    childrenRetryAt.delete(sid);
+    setChildren((previous) => {
+      if (!previous.has(sid)) return previous;
+      const next = new Map(previous);
+      next.delete(sid);
+      return next;
+    });
+    setChildrenVersion((value) => value + 1);
+  };
+
+  const discardSession = (sessionId: string): void => {
+    sessionMutationEpoch += 1;
+    deletedSessionIds.add(sessionId);
+    setSessions((previous) => previous.filter((session) => session.id !== sessionId));
+    setSessionStatuses((previous) => withoutMapEntry(previous, sessionId));
+    setIdleObservedAt((previous) => withoutMapEntry(previous, sessionId));
+    histories.dropHistory(sessionId);
+    dropChildren(sessionId);
   };
 
   const makeResolveChildId =
@@ -131,7 +157,25 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     dataCoalescer.schedule({ sessionID: event?.properties?.sessionID, refreshSessions: true });
   const onPartData = (event?: { readonly properties?: { readonly sessionID?: string } }): void =>
     dataCoalescer.schedule({ sessionID: event?.properties?.sessionID, refreshSessions: false });
+  const onHistoryInvalidated = (event?: { readonly properties?: { readonly sessionID?: string } }): void => {
+    const sessionId = event?.properties?.sessionID;
+    if (sessionId !== undefined) histories.invalidateHistory(sessionId);
+  };
+  const onSessionDeleted = (event?: SessionReferenceEvent): void => {
+    const sessionId = sessionIdFromEvent(event);
+    if (sessionId !== undefined) discardSession(sessionId);
+    onData(event);
+  };
+  const onSessionCreated = (event?: SessionReferenceEvent): void => {
+    const sessionId = sessionIdFromEvent(event);
+    if (sessionId !== undefined) {
+      sessionMutationEpoch += 1;
+      deletedSessionIds.delete(sessionId);
+    }
+    onData(event);
+  };
   const onSessionStatus = (event: ImmediateSessionEvent): void => {
+    if (deletedSessionIds.has(event.properties.sessionID)) return;
     setSessionStatuses((prev) => sessionStatusesAfterEvent(prev, event));
     setIdleObservedAt((prev) => idleObservedTimesAfterEvent(prev, event, Date.now()));
     setDataRev((value) => value + 1);
@@ -145,13 +189,9 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     api,
     signals: {
       sessions,
-      setSessions,
-      setSessionStatuses,
       setSessionError,
-      setHistory: histories.setHistory,
-      setChildren,
     },
-    caches: { inFlight: histories.inFlight, failed: histories.failed, childrenInFlight, childrenRetryAt },
+    discardSession,
     isDisposed: () => disposed,
     refreshSessions,
   });
@@ -163,7 +203,13 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
   const unsubs = [
     api.event.on("session.status", onSessionStatus),
     api.event.on("session.idle", onSessionStatus),
-    ...SESSION_REFRESH_EVENTS.map((event) => api.event.on(event, onData)),
+    ...SESSION_REFRESH_EVENTS.map((event) =>
+      api.event.on(
+        event,
+        event === "session.deleted" ? onSessionDeleted : event === "session.created" ? onSessionCreated : onData,
+      ),
+    ),
+    ...HISTORY_INVALIDATION_EVENTS.map((event) => api.event.on(event, onHistoryInvalidated)),
     api.event.on("message.updated", onData),
     api.event.on("message.part.updated", onPartData),
   ];
@@ -174,15 +220,15 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     clearInterval(ticker);
     clearInterval(sessionBusySpinnerTicker);
     dataCoalescer.dispose();
+    histories.dispose();
     for (const unsub of unsubs) unsub();
-    rendererWidth.dispose();
   });
 
-  const panelDeps = (): PanelDeps => ({
+  const panelDeps = (width: () => number = () => api.renderer.width): PanelDeps => ({
     api,
     options,
     now,
-    width: rendererWidth.current,
+    width,
     mergedFor: histories.mergedFor,
     partsByMsg: histories.partsByMsg,
     flattenParts: histories.flattenParts,
@@ -203,17 +249,22 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
     order: 55,
     slots: {
       app_bottom(_ctx: TuiSlotContext) {
+        const dimensions = useTerminalDimensions();
         return renderAppBottomSessionTitle({
           route: () => api.route.current,
           getSession: (sessionId) => api.state.session.get(sessionId),
           theme: () => api.theme.current,
-          width: rendererWidth.current,
+          width: () => dimensions().width,
           revision: dataRev,
         });
       },
       session_prompt_right(_ctx: TuiSlotContext, props: SlotProps) {
+        const dimensions = useTerminalDimensions();
         dataRev();
-        return renderPromptTimer(panelDeps(), props.session_id);
+        return renderPromptTimer(
+          panelDeps(() => dimensions().width),
+          props.session_id,
+        );
       },
     },
   });
@@ -224,9 +275,10 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
       sidebar_content(_ctx: TuiSlotContext, props: SlotProps) {
         dataRev();
         const projectPath = currentSessionProjectPath(sessions(), props.session_id);
+        const deps = panelDeps();
         return (
           <box flexDirection="column">
-            {renderAgentsPanel(panelDeps(), props.session_id)}
+            {renderAgentsPanel(deps, props.session_id)}
             <box height={1} />
             {renderTabs({
               active: activeTab(),
@@ -236,8 +288,8 @@ const tui: TuiPlugin = async (api, rawOptions, _meta) => {
               ...(projectPath === undefined ? {} : { projectPath }),
             })}
             {activeTab() === "timeline"
-              ? renderTimelinePanel(panelDeps(), props.session_id)
-              : renderSessionsPanel(panelDeps(), props.session_id)}
+              ? renderTimelinePanel(deps, props.session_id)
+              : renderSessionsPanel(deps, props.session_id)}
           </box>
         ) as unknown as JSX.Element;
       },

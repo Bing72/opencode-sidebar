@@ -4,13 +4,16 @@ import {
   CHILDREN_RETRY_MS,
   canFetchChildren,
   canRefreshSessions,
+  HISTORY_INVALIDATION_EVENTS,
   liveTailFlushPlan,
   markChildrenFetch,
   markSessionsRefresh,
   SESSION_REFRESH_EVENTS,
   SESSION_REFRESH_THROTTLE_MS,
+  sessionIdFromEvent,
   sessionIdsForLiveTail,
   shouldLoadHistory,
+  withoutMapEntry,
 } from "../tui-state";
 
 describe("tui state helpers", () => {
@@ -47,14 +50,42 @@ describe("tui state helpers", () => {
     expect(SESSION_REFRESH_EVENTS).toEqual(["session.created", "session.updated", "session.deleted"]);
   });
 
-  it("T-TUI-06 keeps part-only live-tail batches from refreshing sessions", () => {
+  it("T-TUI-06 invalidates cached history when messages disappear or a session is compacted", () => {
+    expect(HISTORY_INVALIDATION_EVENTS).toEqual(["message.removed", "message.part.removed", "session.compacted"]);
+  });
+
+  it("T-TUI-07 reads session IDs from both current and legacy mutation events", () => {
+    expect(sessionIdFromEvent({ properties: { sessionID: "current", info: { id: "legacy" } } })).toBe("current");
+    expect(sessionIdFromEvent({ properties: { info: { id: "legacy" } } })).toBe("legacy");
+    expect(sessionIdFromEvent(undefined)).toBeUndefined();
+  });
+
+  it("T-TUI-08 removes a map entry without mutating the input", () => {
+    const original = new Map([
+      ["s1", 1],
+      ["s2", 2],
+    ]);
+
+    const changed = withoutMapEntry(original, "s1");
+
+    expect(changed).toEqual(new Map([["s2", 2]]));
+    expect(original).toEqual(
+      new Map([
+        ["s1", 1],
+        ["s2", 2],
+      ]),
+    );
+    expect(withoutMapEntry(original, "missing")).toBe(original);
+  });
+
+  it("T-TUI-09 keeps part-only live-tail batches from refreshing sessions", () => {
     expect(liveTailFlushPlan([{ sessionID: "s1", refreshSessions: false }], ["s1", "s2"])).toEqual({
       sessionIds: ["s1"],
       refreshSessions: false,
     });
   });
 
-  it("T-TUI-07 refreshes sessions when any coalesced live-tail update requires it", () => {
+  it("T-TUI-10 refreshes sessions when any coalesced live-tail update requires it", () => {
     expect(
       liveTailFlushPlan(
         [
@@ -69,7 +100,7 @@ describe("tui state helpers", () => {
     });
   });
 
-  it("T-TUI-08 loads missing cached history", () => {
+  it("T-TUI-11 loads missing cached history", () => {
     expect(
       shouldLoadHistory({
         sessionId: "s1",
@@ -82,7 +113,7 @@ describe("tui state helpers", () => {
     ).toBe(true);
   });
 
-  it("T-TUI-09 keeps cached history idle without a reload generation", () => {
+  it("T-TUI-12 keeps cached history idle without a reload generation", () => {
     const history: ReadonlyMap<string, readonly []> = new Map([["s1", []]]);
 
     expect(
@@ -97,7 +128,7 @@ describe("tui state helpers", () => {
     ).toBe(false);
   });
 
-  it("T-TUI-10 reloads cached history for a new visible generation", () => {
+  it("T-TUI-13 reloads cached history for a new visible generation", () => {
     const history: ReadonlyMap<string, readonly []> = new Map([["s1", []]]);
     const requestedReloadGenerations = new Map([["s1", 1]]);
 
@@ -114,7 +145,7 @@ describe("tui state helpers", () => {
     ).toBe(true);
   });
 
-  it("T-TUI-11 skips cached history already requested for the visible generation", () => {
+  it("T-TUI-14 skips cached history already requested for the visible generation", () => {
     const history: ReadonlyMap<string, readonly []> = new Map([["s1", []]]);
     const requestedReloadGenerations = new Map([["s1", 2]]);
 
@@ -131,7 +162,7 @@ describe("tui state helpers", () => {
     ).toBe(false);
   });
 
-  it("T-TUI-12 blocks history loads while guarded", () => {
+  it("T-TUI-15 blocks history loads while guarded", () => {
     const history = new Map<string, readonly []>();
 
     expect(

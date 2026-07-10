@@ -1,13 +1,12 @@
 import type { Accessor, Setter } from "solid-js";
 
-import type { Envelope } from "./history";
 import {
   deleteSessionById,
   openSessionDeleteConfirmation,
   type SessionDeleteClient,
   type SessionDeleteConfirmationUi,
 } from "./session-deletion";
-import type { Session, SessionStatus } from "./types";
+import type { Session } from "./types";
 
 export interface SessionActionApi {
   readonly ui: SessionDeleteConfirmationUi;
@@ -18,24 +17,13 @@ export interface SessionActionApi {
 
 interface SessionActionSignals {
   readonly sessions: Accessor<ReadonlyArray<Session>>;
-  readonly setSessions: Setter<ReadonlyArray<Session>>;
-  readonly setSessionStatuses: Setter<ReadonlyMap<string, SessionStatus>>;
   readonly setSessionError: Setter<string | undefined>;
-  readonly setHistory: Setter<ReadonlyMap<string, ReadonlyArray<Envelope>>>;
-  readonly setChildren: Setter<ReadonlyMap<string, ReadonlyArray<Session>>>;
-}
-
-interface SessionActionCaches {
-  readonly inFlight: Set<string>;
-  readonly failed: Set<string>;
-  readonly childrenInFlight: Set<string>;
-  readonly childrenRetryAt: Map<string, number>;
 }
 
 export interface SessionActionControllerArgs {
   readonly api: SessionActionApi;
   readonly signals: SessionActionSignals;
-  readonly caches: SessionActionCaches;
+  readonly discardSession: (sessionId: string) => void;
   readonly isDisposed: () => boolean;
   readonly refreshSessions: (force?: boolean) => void;
 }
@@ -59,14 +47,7 @@ export function createSessionActions(args: SessionActionControllerArgs): Session
     deleteSessionById(args.api.client.session, sessionId)
       .then(() => {
         if (args.isDisposed()) return;
-        args.signals.setSessions((prev) => prev.filter((session) => session.id !== sessionId));
-        args.signals.setSessionStatuses((prev) => withoutMapEntry(prev, sessionId));
-        args.signals.setHistory((prev) => withoutMapEntry(prev, sessionId));
-        args.signals.setChildren((prev) => withoutMapEntry(prev, sessionId));
-        args.caches.inFlight.delete(sessionId);
-        args.caches.failed.delete(sessionId);
-        args.caches.childrenInFlight.delete(sessionId);
-        args.caches.childrenRetryAt.delete(sessionId);
+        args.discardSession(sessionId);
         args.signals.setSessionError(undefined);
         args.refreshSessions(true);
       })
@@ -91,10 +72,4 @@ export function createSessionActions(args: SessionActionControllerArgs): Session
   };
 
   return { confirmDeleteSession };
-}
-
-function withoutMapEntry<Value>(map: ReadonlyMap<string, Value>, key: string): Map<string, Value> {
-  const next = new Map(map);
-  next.delete(key);
-  return next;
 }

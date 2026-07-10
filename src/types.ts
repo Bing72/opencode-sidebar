@@ -6,7 +6,6 @@ export type ClockFormat = "24h" | "12h";
 export type SidebarTab = "timeline" | "sessions";
 
 export interface PluginOptions {
-  readonly enabled?: boolean;
   readonly clockFormat?: ClockFormat;
   readonly maxRows?: number;
   readonly maxSessions?: number;

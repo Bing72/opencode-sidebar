@@ -4,6 +4,7 @@ coverage/
 .codegraph/
 .codegraph
 .omo/
+.omx/
 .debug-journal.md
 .env
 .env.*

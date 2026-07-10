@@ -12,8 +12,7 @@ This is a terminal-native observability panel for opencode sessions. It should f
 - `muted`: host theme textMuted; used for clocks, durations, inactive tabs, and idle rows.
 - `success`: host theme success; used for completed work.
 - `warning`: host theme warning; used for retry/rate-limited states and todo rows.
-- `error`: host theme error; used for failed rows.
-- `sessionActionDelete`: soft red `#EF4444`; used for the non-current session delete request.
+- `error`: host theme error; used for failed rows and the non-current session delete request.
 - `text`: host theme text; used for primary labels.
 
 ## 3. Typography
@@ -33,8 +32,8 @@ This is a terminal-native observability panel for opencode sessions. It should f
 - `AgentsPanel`: latest visible sub-agent batch, always shows a header and empty state.
 - `TimelinePanel`: user query timeline built from real User Arguments, click opens detail dialog.
 - `SessionTabs`: `Timeline` and `Sessions`, click switches active panel.
-- `SessionsPanel`: recent opencode sessions with status glyph, title, updated age, click navigation, and soft-red `×` delete request on non-current rows.
-- `BottomSessionTitle`: current session title in `app_bottom` only when the host sidebar is hidden at `<= 120` columns; centered, prefix-free, and hidden on wider layouts.
+- `SessionsPanel`: recent opencode sessions with status glyph, title, updated age, click navigation, and theme-error `×` delete request on non-current rows.
+- `BottomSessionTitle`: current session title in `app_bottom` at `<= 120` columns, matching the host's automatic sidebar breakpoint; centered, prefix-free, and hidden on wider layouts.
 
 ## 6. Interaction
 

@@ -1,10 +1,18 @@
 export const CHILDREN_RETRY_MS = 3_000;
+export const HISTORY_INVALIDATION_EVENTS = ["message.removed", "message.part.removed", "session.compacted"] as const;
 export const SESSION_REFRESH_THROTTLE_MS = 3_000;
 export const SESSION_REFRESH_EVENTS = ["session.created", "session.updated", "session.deleted"] as const;
 
 export interface LiveTailUpdate {
   readonly sessionID: string | undefined;
   readonly refreshSessions: boolean;
+}
+
+export interface SessionReferenceEvent {
+  readonly properties?: {
+    readonly sessionID?: string;
+    readonly info?: { readonly id?: string };
+  };
 }
 
 export interface LiveTailFlushPlan {
@@ -33,6 +41,17 @@ export function sessionIdsForLiveTail(
     if (sid !== undefined && !scoped.includes(sid)) scoped.push(sid);
   }
   return scoped;
+}
+
+export function sessionIdFromEvent(event: SessionReferenceEvent | undefined): string | undefined {
+  return event?.properties?.sessionID ?? event?.properties?.info?.id;
+}
+
+export function withoutMapEntry<Value>(map: ReadonlyMap<string, Value>, key: string): ReadonlyMap<string, Value> {
+  if (!map.has(key)) return map;
+  const next = new Map(map);
+  next.delete(key);
+  return next;
 }
 
 export function liveTailFlushPlan(

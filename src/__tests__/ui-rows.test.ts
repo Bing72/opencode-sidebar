@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEntry } from "../types";
 import {
+  agentStatusColor,
   currentSessionColor,
   handleSessionDeleteMouseUp,
-  SESSION_BUSY_GLYPH_COLOR,
-  SESSION_DELETE_ACTION_COLOR,
   SESSION_DELETE_ACTION_GLYPH,
   sessionDeleteActionColor,
   sessionGlyphColor,
@@ -75,9 +74,9 @@ describe("session row helpers", () => {
     expect(sessionStatusReasonParts({ status: "idle" })).toEqual({ status: "idle" });
   });
 
-  it("T-ROW-06 keeps the delete action glyph and color on the agreed presentation", () => {
+  it("T-ROW-06 uses the host error token for the delete action", () => {
     expect(SESSION_DELETE_ACTION_GLYPH).toBe("×");
-    expect(sessionDeleteActionColor()).toBe(SESSION_DELETE_ACTION_COLOR);
+    expect(sessionDeleteActionColor(theme)).toBe(theme.error);
   });
 
   it("T-ROW-07 keeps the project folder as a standalone tab header line", () => {
@@ -85,11 +84,19 @@ describe("session row helpers", () => {
     expect(tabHeaderProjectParts(undefined)).toBeUndefined();
   });
 
-  it("T-ROW-08 prioritizes current glyph color over non-current busy spinner color", () => {
-    expect(sessionGlyphColor({ ...deletableEntry, status: "busy" }, theme)).toBe(SESSION_BUSY_GLYPH_COLOR);
+  it("T-ROW-08 prioritizes current glyph color and otherwise follows status tokens", () => {
+    expect(sessionGlyphColor({ ...deletableEntry, status: "busy" }, theme)).toBe(theme.info);
     expect(sessionGlyphColor({ ...deletableEntry, status: "busy", current: true }, theme)).toBe(theme.success);
     expect(sessionGlyphColor({ ...deletableEntry, status: "idle", current: true }, theme)).toBe(theme.success);
     expect(sessionGlyphColor({ ...deletableEntry, status: "retry" }, theme)).toBe(theme.warning);
+  });
+
+  it("T-ROW-12 maps agent states to semantic host colors", () => {
+    expect(agentStatusColor("running", theme)).toBe(theme.accent);
+    expect(agentStatusColor("rate-limited", theme)).toBe(theme.warning);
+    expect(agentStatusColor("interrupted", theme)).toBe(theme.textMuted);
+    expect(agentStatusColor("error", theme)).toBe(theme.error);
+    expect(agentStatusColor("completed", theme)).toBe(theme.success);
   });
 
   it("T-ROW-11 renders the current busy spinner frame only for non-current busy rows", () => {

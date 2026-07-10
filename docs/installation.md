@@ -8,7 +8,7 @@ On Windows PowerShell, prefer the PowerShell commands below. Do not run the Bash
 
 - Timeline rows show only real user queries from User Arguments.
 - Sessions is the default tab. It keeps the currently viewed session at the top and uses the host theme info color for busy sessions.
-- On narrow terminals where OpenCode hides the sidebar (`<= 120` columns), the current session title is shown centered in `app_bottom` without a prefix. Wider terminals hide this bottom title and rely on the sidebar title.
+- At `<= 120` terminal columns—the same breakpoint OpenCode uses for its automatic sidebar layout—the current session title is shown centered in `app_bottom` without a prefix. Wider terminals hide this bottom title.
 - The bottom session title uses a stable per-session rotation through the host theme palette, so the color stays fixed for the same session instead of flickering per render.
 - Use the mouse to switch Sessions/Timeline tabs. The plugin does not register a Ctrl+Tab shortcut.
 - On non-current session rows, `×` opens a final confirmation dialog before permanent deletion.
@@ -22,7 +22,7 @@ Install and configure `opencode-sidebar` for the current user.
 3. Update `~/.config/opencode/tui.json` so the `plugin` array contains this entry, using the user's absolute home path:
 
 ```json
-["/home/<user>/.config/opencode/plugins/opencode-sidebar/src/tui.tsx", { "enabled": true }]
+"/home/<user>/.config/opencode/plugins/opencode-sidebar/src/tui.tsx"
 ```
 
 Keep any existing plugin entries. Do not duplicate the entry if it is already present.
@@ -67,7 +67,7 @@ npm install --prefix $PluginDir
 For `tui.json` on Windows, use an absolute path with forward slashes or escaped backslashes. Forward slashes are easiest:
 
 ```json
-["C:/Users/<user>/.config/opencode/plugins/opencode-sidebar/src/tui.tsx", { "enabled": true }]
+"C:/Users/<user>/.config/opencode/plugins/opencode-sidebar/src/tui.tsx"
 ```
 
 If OpenCode shows a Bun segmentation fault while installing or loading plugins, stop retrying the same `bunx` or `bun install` command in that session. Finish the clone and dependency install with PowerShell + npm, update `tui.json`, then restart OpenCode. The plugin is local TypeScript/TSX plus npm dependencies; it does not require Bun for dependency installation.
@@ -79,10 +79,8 @@ After editing `~/.config/opencode/tui.json`, restart OpenCode. The TUI config is
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": [
-    ["/home/<user>/.config/opencode/plugins/opencode-sidebar/src/tui.tsx", { "enabled": true }]
-  ]
+  "plugin": ["/home/<user>/.config/opencode/plugins/opencode-sidebar/src/tui.tsx"]
 }
 ```
 
-Keep `oh-my-openagent@latest` or any other existing TUI plugin entries in the array when they are already present.
+Keep any other existing TUI plugin entries in the array.

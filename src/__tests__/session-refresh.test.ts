@@ -61,10 +61,10 @@ async function flushPromises(): Promise<void> {
 
 describe("session refresher", () => {
   it("T-REF-01 queues a forced refresh while a request is in flight", async () => {
-    const firstList = deferred<ReadonlyArray<Session> | undefined>();
-    const firstStatus = deferred<Readonly<Record<string, SessionStatus>> | undefined>();
-    const secondList = deferred<ReadonlyArray<Session> | undefined>();
-    const secondStatus = deferred<Readonly<Record<string, SessionStatus>> | undefined>();
+    const firstList = deferred<ReadonlyArray<Session>>();
+    const firstStatus = deferred<Readonly<Record<string, SessionStatus>>>();
+    const secondList = deferred<ReadonlyArray<Session>>();
+    const secondStatus = deferred<Readonly<Record<string, SessionStatus>>>();
     const listResponses = [firstList, secondList];
     const statusResponses = [firstStatus, secondStatus];
     const successForces: boolean[] = [];
@@ -114,8 +114,8 @@ describe("session refresher", () => {
   });
 
   it("T-REF-02 ignores rejected session refreshes after disposal", async () => {
-    const list = deferred<ReadonlyArray<Session> | undefined>();
-    const status = deferred<Readonly<Record<string, SessionStatus>> | undefined>();
+    const list = deferred<ReadonlyArray<Session>>();
+    const status = deferred<Readonly<Record<string, SessionStatus>>>();
     const errors: string[] = [];
     let disposed = false;
     const refresh = createSessionRefresher(
@@ -143,17 +143,19 @@ describe("session refresher", () => {
     expect(errors).toEqual([]);
   });
 
-  it("T-REF-03 passes a bounded global roots query to session.list and keeps status paramless", async () => {
+  it("T-REF-03 passes a bounded global roots query and enables SDK error rejection", async () => {
     const listQueries: GlobalSessionListQuery[] = [];
-    const statusArgCounts: number[] = [];
+    const listOptionArgs: unknown[][] = [];
+    const statusArgs: unknown[][] = [];
     const client = createGlobalSessionRefreshClient(
       {
-        list: (query: GlobalSessionListQuery) => {
+        list: (query: GlobalSessionListQuery, ...args: readonly unknown[]) => {
           listQueries.push(query);
+          listOptionArgs.push([...args]);
           return Promise.resolve({ data: [] });
         },
         status: (...args: readonly unknown[]) => {
-          statusArgCounts.push(args.length);
+          statusArgs.push([...args]);
           return Promise.resolve({ data: {} });
         },
       },
@@ -176,7 +178,8 @@ describe("session refresher", () => {
         limit: 7,
       },
     ]);
-    expect(statusArgCounts).toEqual([0]);
+    expect(listOptionArgs).toEqual([[{ throwOnError: true }]]);
+    expect(statusArgs).toEqual([[undefined, { throwOnError: true }]]);
   });
 
   it("T-REF-04 uses the default global fetch limit when no limit is provided", async () => {
@@ -268,5 +271,155 @@ describe("session refresher", () => {
     await flushPromises();
 
     expect(successForces).toEqual([true]);
+  });
+
+  it("T-REF-07 preserves existing data and exposes SDK field errors", async () => {
+    const existingSessions = [session("existing")];
+    let currentSessions: ReadonlyArray<Session> = existingSessions;
+    let currentStatuses: ReadonlyMap<string, SessionStatus> = new Map([["existing", { type: "busy" }]]);
+    const errors: Array<string | undefined> = [];
+    const successForces: boolean[] = [];
+    const client = createGlobalSessionRefreshClient({
+      list: () =>
+        Promise.resolve({
+          data: undefined,
+          error: { name: "BadRequest", data: { message: "session list unavailable" } },
+        }),
+      status: () => Promise.resolve({ data: {} }),
+    });
+    const refresh = createSessionRefresher(client, {
+      isDisposed: () => false,
+      now: () => 10_000,
+      onRefreshSuccess: (force) => {
+        successForces.push(force);
+      },
+      setError: (message) => {
+        errors.push(message);
+      },
+      setSessions: (sessions) => {
+        currentSessions = sessions;
+      },
+      setStatuses: (update) => {
+        currentStatuses = applyStatusUpdate(currentStatuses, update);
+      },
+    });
+
+    refresh(true);
+    await flushPromises();
+
+    expect(currentSessions).toBe(existingSessions);
+    expect(currentStatuses).toEqual(new Map([["existing", { type: "busy" }]]));
+    expect(errors).toEqual(["session list unavailable"]);
+    expect(successForces).toEqual([]);
+  });
+
+  it("T-REF-08 excludes deleted sessions from stale in-flight refresh results", async () => {
+    const list = deferred<ReadonlyArray<Session>>();
+    const status = deferred<Readonly<Record<string, SessionStatus>>>();
+    const deletedSessionIds = new Set<string>();
+    let currentSessions: ReadonlyArray<Session> = [];
+    let currentStatuses: ReadonlyMap<string, SessionStatus> = new Map([
+      ["deleted", { type: "busy" }],
+      ["preserved-active", { type: "busy" }],
+    ]);
+    const refresh = createSessionRefresher(
+      {
+        list: () => list.promise,
+        status: () => status.promise,
+      },
+      {
+        excludedSessionIds: () => deletedSessionIds,
+        isDisposed: () => false,
+        now: () => 10_000,
+        setError: () => undefined,
+        setSessions: (sessions) => {
+          currentSessions = sessions;
+        },
+        setStatuses: (update) => {
+          currentStatuses = applyStatusUpdate(currentStatuses, update);
+        },
+      },
+    );
+
+    refresh(true);
+    deletedSessionIds.add("deleted");
+    list.resolve([session("deleted"), session("kept")]);
+    status.resolve({
+      deleted: { type: "retry", attempt: 1, message: "stale", next: 20_000 },
+      kept: { type: "idle" },
+    });
+    await flushPromises();
+
+    expect(currentSessions.map((item) => item.id)).toEqual(["kept"]);
+    expect(currentStatuses.has("deleted")).toBe(false);
+    expect(currentStatuses.get("kept")).toEqual({ type: "idle" });
+    expect(currentStatuses.get("preserved-active")).toEqual({ type: "busy" });
+  });
+
+  it("T-REF-09 discards a refresh that spans delete and same-ID recreation", async () => {
+    const firstList = deferred<ReadonlyArray<Session>>();
+    const firstStatus = deferred<Readonly<Record<string, SessionStatus>>>();
+    const secondList = deferred<ReadonlyArray<Session>>();
+    const secondStatus = deferred<Readonly<Record<string, SessionStatus>>>();
+    const listResponses = [firstList, secondList];
+    const statusResponses = [firstStatus, secondStatus];
+    const deletedSessionIds = new Set<string>();
+    const errors: Array<string | undefined> = [];
+    let mutationEpoch = 0;
+    let listCalls = 0;
+    let currentSessions: ReadonlyArray<Session> = [];
+    let currentStatuses: ReadonlyMap<string, SessionStatus> = new Map();
+    const refresh = createSessionRefresher(
+      {
+        list: () => {
+          listCalls += 1;
+          const response = listResponses.shift();
+          if (response === undefined) throw new Error("Unexpected list call");
+          return response.promise;
+        },
+        status: () => {
+          const response = statusResponses.shift();
+          if (response === undefined) throw new Error("Unexpected status call");
+          return response.promise;
+        },
+      },
+      {
+        excludedSessionIds: () => deletedSessionIds,
+        isDisposed: () => false,
+        now: () => 10_000,
+        sessionMutationEpoch: () => mutationEpoch,
+        setError: (message) => errors.push(message),
+        setSessions: (sessions) => {
+          currentSessions = sessions;
+        },
+        setStatuses: (update) => {
+          currentStatuses = applyStatusUpdate(currentStatuses, update);
+        },
+      },
+    );
+
+    refresh(true);
+    mutationEpoch += 1;
+    deletedSessionIds.add("same-id");
+    mutationEpoch += 1;
+    deletedSessionIds.delete("same-id");
+    currentStatuses = new Map([["same-id", { type: "idle" }]]);
+    refresh(true);
+
+    firstList.resolve([session("same-id")]);
+    firstStatus.resolve({ "same-id": { type: "busy" } });
+    await flushPromises();
+
+    expect(listCalls).toBe(2);
+    expect(currentSessions).toEqual([]);
+    expect(currentStatuses.get("same-id")).toEqual({ type: "idle" });
+
+    secondList.reject(new Error("new snapshot failed"));
+    secondStatus.resolve({});
+    await flushPromises();
+
+    expect(currentSessions).toEqual([]);
+    expect(currentStatuses.get("same-id")).toEqual({ type: "idle" });
+    expect(errors).toEqual(["new snapshot failed"]);
   });
 });

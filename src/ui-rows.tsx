@@ -5,7 +5,7 @@ import type { JSX } from "solid-js";
 
 import { agentModel, formatSessionAge, rowDurationText } from "./format";
 import { SIDEBAR_TAB_ORDER, sidebarTabLabel } from "./tabs";
-import type { AgentEntry, SessionEntry, SessionStatus, SidebarTab } from "./types";
+import type { AgentEntry, AgentStatus, SessionEntry, SessionStatus, SidebarTab } from "./types";
 
 export interface PaletteOptions {
   readonly headerColor?: string;
@@ -18,6 +18,15 @@ interface SessionColorTheme<Color> {
   readonly primary: Color;
   readonly warning: Color;
   readonly success?: Color;
+  readonly textMuted: Color;
+}
+
+interface AgentColorTheme<Color> {
+  readonly accent?: Color;
+  readonly primary: Color;
+  readonly warning: Color;
+  readonly error: Color;
+  readonly success: Color;
   readonly textMuted: Color;
 }
 
@@ -65,9 +74,7 @@ export interface RenderSessionRowsArgs {
 
 const SESSION_GLYPH_TITLE_SEPARATOR = " ";
 const SESSION_STATUS_REASON_SEPARATOR = " · ";
-export const SESSION_BUSY_GLYPH_COLOR = "white";
 export const SESSION_DELETE_ACTION_GLYPH = "×";
-export const SESSION_DELETE_ACTION_COLOR = "#EF4444";
 
 export function sessionGlyphTitleParts(entry: Pick<SessionEntry, "glyph" | "title">): SessionGlyphTitleParts {
   return {
@@ -110,20 +117,29 @@ export function currentSessionColor<Color>(theme: SessionColorTheme<Color>): Col
   return theme.success ?? theme.primary;
 }
 
+export function agentStatusColor<Color>(status: AgentStatus, theme: AgentColorTheme<Color>): Color {
+  switch (status) {
+    case "running":
+      return theme.accent ?? theme.primary;
+    case "rate-limited":
+      return theme.warning;
+    case "interrupted":
+      return theme.textMuted;
+    case "error":
+      return theme.error;
+    case "completed":
+      return theme.success;
+    default:
+      return assertNeverAgentStatus(status);
+  }
+}
+
 export function sessionGlyphColor<Color>(
   entry: Pick<SessionEntry, "current" | "status">,
   theme: SessionColorTheme<Color>,
-): Color | typeof SESSION_BUSY_GLYPH_COLOR {
+): Color {
   if (entry.current) return currentSessionColor(theme);
-  switch (entry.status) {
-    case "busy":
-      return SESSION_BUSY_GLYPH_COLOR;
-    case "retry":
-    case "idle":
-      return sessionStatusColor(entry.status, theme);
-    default:
-      return assertNever(entry.status);
-  }
+  return sessionStatusColor(entry.status, theme);
 }
 
 export function sessionRowGlyph(
@@ -134,8 +150,8 @@ export function sessionRowGlyph(
   return entry.status === "busy" ? busySpinnerFrame : entry.glyph;
 }
 
-export function sessionDeleteActionColor(): typeof SESSION_DELETE_ACTION_COLOR {
-  return SESSION_DELETE_ACTION_COLOR;
+export function sessionDeleteActionColor<Color>(theme: { readonly error: Color }): Color {
+  return theme.error;
 }
 
 export function handleSessionDeleteMouseUp(
@@ -199,7 +215,7 @@ export function renderAgentRow(
       }}
     >
       <box height={1} flexDirection="row" justifyContent="space-between">
-        <text fg={entry.running ? (theme.accent ?? theme.primary) : theme.text}>{`${entry.glyph} ${entry.label}`}</text>
+        <text fg={agentStatusColor(entry.status, theme)}>{`${entry.glyph} ${entry.label}`}</text>
         <text fg={theme.textMuted}>{` ${rowDurationText(entry, liveNow)}`}</text>
       </box>
       {model === undefined ? null : (
@@ -241,7 +257,7 @@ export function renderSessionRows(args: RenderSessionRowsArgs): JSX.Element[] {
             <text fg={theme.textMuted}>{` ${formatSessionAge(entry.updatedMs)} ago`}</text>
             {entry.deletable && confirmDeleteSession !== undefined ? (
               <text
-                fg={sessionDeleteActionColor()}
+                fg={sessionDeleteActionColor(theme)}
                 onMouseUp={(event) => handleSessionDeleteMouseUp(event, entry, confirmDeleteSession)}
               >
                 {` ${SESSION_DELETE_ACTION_GLYPH}`}
@@ -264,4 +280,8 @@ export function renderSessionRows(args: RenderSessionRowsArgs): JSX.Element[] {
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled session status: ${value}`);
+}
+
+function assertNeverAgentStatus(value: never): never {
+  throw new Error(`Unhandled agent status: ${value}`);
 }
